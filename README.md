@@ -5,7 +5,7 @@ R package for analyzing tag-recapture data using size transition matrices (STMs)
 ## Installation
 ```r
 # Install from GitHub
-devtools::install_github("your-username/Tag2STM")
+devtools::install_github("sdelestang/Tag2STM")
 ```
 
 ## Usage
