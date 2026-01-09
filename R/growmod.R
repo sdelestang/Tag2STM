@@ -5,7 +5,6 @@
 #' log-likelihood for tag-recapture observations with measurement error.
 #'
 #' @param pin Named list of parameters
-#' @param datain List containing model data (lbin, nlbin, ntsteps, etc.)
 #'
 #' @details
 #' This function is designed to be passed to `RTMB::MakeADFun()` and expects
@@ -61,19 +60,8 @@
 #' opt <- nlminb(mod$par, mod$fn, mod$gr)
 #' }
 #'
-#' @importFrom stats pnorm dnorm
 #' @export
-growmod <- function(pin, datain){
-  # Validate required data elements
-  required <- c("lbin", "nlbin", "ntsteps", "goodts", "Tlbin",
-                "Rlcl", "Rccl", "relts", "tsteps", "nlob",
-                "lbinU", "lbinL")
-
-  missing <- setdiff(required, names(datain))
-  if(length(missing) > 0) {
-    stop("Missing required data elements: ", paste(missing, collapse = ", "))
-  }
-  getAll(datain, pin, warn=FALSE)
+growmod <- function(pin){
   getAll(datain, pin, warn=FALSE)
   npar <- length(names(pin))
   nobs <- length(Tlbin)

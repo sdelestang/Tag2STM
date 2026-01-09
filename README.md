@@ -1,119 +1,105 @@
-# Tag2STM - Tag-recapture data to Size Transition Matrices
+# Tag2STM
 
-A package to convert tag-recapture data into size transition matrices for use in crustacean stock assessment models like IMuLT.
+R package for analyzing tag-recapture data using size transition matrices (STMs) with asymmetric inverse logistic growth curves.
 
 ## Installation
-
-Tag2STM requires several packages. Install directly from GitHub using devtools:
 ```r
-# Install devtools if you don't have it
-install.packages("devtools")
-
-# Install CRAN dependencies
-install.packages("RTMB")
-install.packages("dplyr")
-install.packages("ggplot2")
-install.packages("sp")
-
-# Install GitHub dependency
-devtools::install_github("kassambara/ggpubr")
-
-# Install Tag2STM
-devtools::install_github("sdelestang/Tag2STM")
+# Install from GitHub
+devtools::install_github("your-username/Tag2STM")
 ```
-
-## Required Dependencies
-
-The following packages will be automatically installed if not present:
-- RTMB (for model fitting)
-- dplyr (for data manipulation)
-- ggplot2 (for plotting)
-- ggpubr (for publication-ready plots)
-- sp (for spatial data handling)
 
 ## Usage
 ```r
-library(Tag2STM)
 library(RTMB)
+library(Tag2STM)
 
-# 1. Set up length bins
-bins <- MakeLbin(start = 20, stop = 200, gap = 2)
-lbin <- bins$lbin
-lbinL <- bins$lbinL
-lbinU <- bins$lbinU
-
-# 2. Define time step structure (e.g., seasonal growth periods)
-tstep_def <- data.frame(
-  month = c(11, 2, 5, 8),  # Nov, Feb, May, Aug
-  hm = c(0, 0, 0, 0)        # First half of each month
-)
-times <- Maketimes(tstep_def)
-
-# 3. Prepare your tag-recapture data
-# Data should have: release length, recapture length, release/recapture dates
-# Filter for species/sex/location as needed before processing
-
-# 4. Build data structure for model
+# Prepare your tag-recapture data
 datain <- list(
-  lbin = lbin,
-  lbinL = lbinL, 
-  lbinU = lbinU,
-  ntsteps = max(times$tstep),
-  goodts = unique(times$tstep),
-  # ... add your tag data here
+  Tlbin = your_data$tag_length_bin,
+  Rccl = your_data$recapture_length,
+  Rlcl = your_data$release_length,
+  relts = your_data$release_timestep,
+  tsteps = your_data$time_at_liberty,
+  nlob = your_data$number_of_lobsters,
+  nlbin = 72,                    # Number of length bins
+  ntsteps = 6,                   # Number of time steps
+  lbinL = bins$lbinL,            # Length bin lower bounds
+  lbinU = bins$lbinU,            # Length bin upper bounds
+  lbin = bins$lbin,              # Length bin midpoints
+  goodts = 1                     # Time steps to model
 )
 
-# 5. Set initial parameters
+# Set up parameters
 pin <- list(
-  mxpin = rep(0, length(unique(times$tstep))),
-  mnpin = rep(-5, length(unique(times$tstep))),
-  ipin = rep(80, length(unique(times$tstep))),
-  spin_left = rep(0, length(unique(times$tstep))),
-  spin_right = rep(0, length(unique(times$tstep))),
-  LsigError = log(2),
-  sigGrow = log(5),
-  # ... add measurement error terms if needed
+  mxpin = rep(log(40), ntsteps),           # Max growth by timestep
+  mnpin = rep(log(5), ntsteps),            # Min growth by timestep
+  ipin = rep(80, ntsteps),                 # Inflection point
+  spin_left = rep(log(5), ntsteps),        # Left steepness
+  spin_right = rep(log(5), ntsteps),       # Right steepness
+  LsigError = log(2),                      # Measurement error
+  sigGrow = log(5),                        # Growth variability
+  MerrorRel = rep(0, nrow(data)),          # Release error (RE)
+  MerrorRec = rep(0, nrow(data)),          # Recapture error (RE)
+  LMerrorRelsigma = log(2),                # RE sigma for release
+  LMerrorRecsigma = log(2)                 # RE sigma for recapture
 )
 
-# 6. Create parameter map
-map <- Mapfunc(pin, re = FALSE)
+# Optional: fix some parameters
+map <- list(
+  mxpin = factor(c(1, NA, NA, NA, NA, NA)),      # Only estimate first
+  mnpin = factor(c(1, NA, NA, NA, NA, NA)),
+  ipin = factor(c(1, NA, NA, NA, NA, NA)),
+  spin_left = factor(c(1, NA, NA, NA, NA, NA)),
+  spin_right = factor(c(1, NA, NA, NA, NA, NA))
+)
 
-# 7. Fit the model
-mod <- MakeADFun(growmod, pin, map = map)
-opt <- nlminb(mod$par, mod$fn, mod$gr)
+# Create model
+mod <- make_growmod_obj(
+  pin = pin, 
+  map = map, 
+  random = c("MerrorRel", "MerrorRec")
+)
 
-# 8. View results
-mout <- opt
-plotfit()      # Diagnostic plots
-plotpars()     # Growth curves by time step
+# Optimize
+opt <- nlminb(
+  start = mod$par,
+  objective = mod$fn,
+  gradient = mod$gr,
+  control = list(eval.max = 2000, iter.max = 1000)
+)
 
-# 9. Extract size transition matrices for use in IMuLT
-out <- mod$rep()
-stm <- out$stm  # 3D array: [from_bin, to_bin, timestep]
+# Check convergence
+opt$convergence  # 0 = success
+
+# Get results
+sdr <- sdreport(mod)
+summary(sdr, "fixed")
 ```
+
+## Growth Model
+
+The package uses an asymmetric inverse logistic growth model with smoothly transitioning steepness:
+
+$$growth = \frac{\max - \min}{1 + \exp\left(\frac{L - inflection}{steepness}\right)} + \min$$
+
+where steepness transitions from `spin_left` to `spin_right` across the inflection point.
 
 ## Key Functions
 
-- `MakeLbin()` - Create length bin structure
-- `Maketimes()` - Map months to time steps
-- `cntTsteps()` - Calculate time at liberty
-- `growmod()` - RTMB objective function for growth model
-- `Mapfunc()` - Create parameter mapping for estimation control
-- `plotfit()` - Diagnostic plots for model fit
-- `plotpars()` - Plot estimated growth parameters
+- `growmod()` - Core RTMB objective function for tag-recapture growth model
+- `make_growmod_obj()` - Helper to create RTMB objective with proper environment handling
 
-## Model Features
+## Requirements
 
-- Asymmetric inverse logistic growth curves with smooth steepness transition
-- Time-varying growth parameters by season
-- Measurement error on both release and recapture lengths
-- Flexible time step structure (monthly, seasonal, etc.)
-- Output ready for integration with IMuLT population models
+- R >= 4.0.0
+- RTMB
+- dplyr
+- magrittr
 
-## Author
+## Citation
 
-Simon de Lestang (DPIRD, Western Australia)
+If you use this package, please cite...
 
-## See Also
+## License
 
-- [IMuLT](https://github.com/sdelestang/IMuLT) - Integrated Model using Length Transition for crustacean stock assessment
+[Your license]
