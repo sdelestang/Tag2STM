@@ -4,10 +4,12 @@
 \alias{growmod}
 \title{Growth Model Objective Function for Tag-Recapture Data}
 \usage{
-growmod(pin)
+growmod(pin, datain)
 }
 \arguments{
-\item{pin}{Named list of model parameters to be estimated.}
+\item{pin}{Named list of parameters}
+
+\item{datain}{List containing model data (lbin, nlbin, ntsteps, etc.)}
 }
 \value{
 Scalar value of total negative log-likelihood (to be minimized).

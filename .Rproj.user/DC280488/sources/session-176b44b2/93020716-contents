@@ -1,7 +1,0 @@
-library(Tag2STM)
-
-# Quick test
-bins <- MakeLbin(20, 200, 2)
-str(bins)
-
-?growmod  # Check help works

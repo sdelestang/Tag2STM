@@ -4,7 +4,8 @@
 #' from asymmetric inverse logistic growth curves and calculates negative
 #' log-likelihood for tag-recapture observations with measurement error.
 #'
-#' @param pin Named list of model parameters to be estimated.
+#' @param pin Named list of parameters
+#' @param datain List containing model data (lbin, nlbin, ntsteps, etc.)
 #'
 #' @details
 #' This function is designed to be passed to `RTMB::MakeADFun()` and expects
@@ -62,7 +63,17 @@
 #'
 #' @importFrom stats pnorm dnorm
 #' @export
-growmod <- function(pin){
+growmod <- function(pin, datain){
+  # Validate required data elements
+  required <- c("lbin", "nlbin", "ntsteps", "goodts", "Tlbin",
+                "Rlcl", "Rccl", "relts", "tsteps", "nlob",
+                "lbinU", "lbinL")
+
+  missing <- setdiff(required, names(datain))
+  if(length(missing) > 0) {
+    stop("Missing required data elements: ", paste(missing, collapse = ", "))
+  }
+  getAll(datain, pin, warn=FALSE)
   getAll(datain, pin, warn=FALSE)
   npar <- length(names(pin))
   nobs <- length(Tlbin)

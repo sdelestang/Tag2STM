@@ -1,7 +1,7 @@
 Package: Tag2STM
 Type: Package
 Title: Tag-recapture data into size transition matrices
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(person("Simon", "de Lestang", email = "simon.delestang@dpird.wa.gov.au", role = c("aut", "cre")))
 Description: Converts tag-recapture data into size transition matrices which can then be used in population models to grow species.
 License: GPL-3
@@ -15,4 +15,3 @@ Imports:
     dplyr,
     magrittr 
 RoxygenNote: 7.3.2
-
