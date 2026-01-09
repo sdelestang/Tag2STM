@@ -1,0 +1,57 @@
+#' Create Parameter Map for RTMB Model Fitting
+#'
+#' Generates a map list to control which parameters are estimated in the RTMB
+#' tag-recapture model, particularly for handling time-varying parameters and
+#' optional measurement error terms.
+#'
+#' @param pin Named list of initial parameter values for the RTMB model.
+#' @param re Logical, should random effects for measurement error (MerrorRel, MerrorRec)
+#'   be estimated? Default is `FALSE` (fixed at initial values).
+#'
+#' @details
+#' This function expects `datain` to exist in the calling environment, containing:
+#' \describe{
+#'   \item{ntsteps}{Total number of time steps}
+#'   \item{goodts}{Integer vector of valid time step indices to estimate}
+#' }
+#'
+#' The function:
+#' \itemize{
+#'   \item Maps time-varying parameters to NA for time steps not in `goodts`
+#'   \item Excludes parameters containing 'sig' or 'error' from time-varying treatment
+#'   \item Always fixes `LsigError`, `LMerrorRelsigma`, and `LMerrorRecsigma` to NA
+#'   \item Conditionally fixes `MerrorRel` and `MerrorRec` based on `re` argument
+#' }
+#'
+#' @return A named list suitable for the `map` argument in `RTMB::MakeADFun()`,
+#'   where `factor(NA)` indicates fixed parameters and factor levels group
+#'   parameters to be estimated together.
+#'
+#' @examples
+#' \dontrun{
+#' # Create map without measurement error random effects
+#' map <- Mapfunc(pin, re = FALSE)
+#' mod <- MakeADFun(data = datain, parameters = pin, map = map)
+#'
+#' # Allow measurement error estimation
+#' map <- Mapfunc(pin, re = TRUE)
+#' }
+#'
+#' @export
+Mapfunc <- function(pin,re=FALSE) {
+  pnames <- names(pin)[!(grepl('sig',names(pin),ignore.case = T)|grepl('error',names(pin),ignore.case = T))]
+  turnon <- 1:datain$ntsteps; turnon[!(1:datain$ntsteps)%in%datain$goodts]<- NA
+  turnon <- as.factor(turnon)
+  func1 <- function(x) x=turnon
+  map <- lapply(pnames, func1) # This creates a list of the objects.
+  map <- setNames(map, pnames)
+  if(max(grepl('MerrorR',names(pin)))==1) {
+    if(re==F) {
+      map$MerrorRel <- rep(factor(NA),length(pin$MerrorRel))
+      map$MerrorRec <- rep(factor(NA),length(pin$MerrorRec))
+    }}
+  map$LsigError <- factor(NA)
+  map$LMerrorRelsigma <- factor(NA)
+  map$LMerrorRecsigma <- factor(NA)
+  return(map)
+}

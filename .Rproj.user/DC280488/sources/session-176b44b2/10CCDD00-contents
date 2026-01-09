@@ -1,0 +1,44 @@
+
+
+
+
+## Make positive vector from 1 to 2
+vecfunc <- function(x,vec){
+  vlen <- length(vec)
+  dif <- (exp(x[1])-exp(x[2]))/(vlen-1)
+  Vec <- rep(dif,vlen) ## Vector for process error
+  Vec[1] <- exp(x[1])
+  Vec <- cumsum(Vec)
+  return(Vec) }
+
+
+
+
+
+
+plotpars <- function(){
+  pars <- mout$par[names(mout$par)!='sigma' & names(mout$par)!='Err']
+  pars <- as.data.frame(split(pars, names(pars))); if(ncol(pars)==3) pars$mipin <- rep(-10,nrow(pars))
+  gout <- data.frame(len=rep(lbin, nrow(pars)), tstep=rep((1:datain$ntsteps)[(1:datain$ntsteps)%in%datain$goodts], each=length(lbin)), est=NA)
+  for(i in 1:length(unique(gout$tstep))){
+    gout$est[gout$tstep==sort(unique(gout$tstep))[i]] <- (exp(pars$mxpin[i]))/(1+exp((lbin-pars$ipin[i])/pars$spin[i]))+exp(pars$mipin[i])}
+  library(ggplot2)
+  ggplot(gout, aes(x = len, y = est)) +
+    theme_bw() +
+    geom_line() +
+    facet_wrap( ~ tstep, scale = "free_y")+
+    xlab("Carapace length (mm)")+
+    ylab("Annual growth (mm)")
+}
+
+## Assign timesteps
+funcnts <- function(x,mt){
+  nyrs <- x[2]-x[1]
+  if(nyrs==0) mt <- x[4]
+  a1 <- x[3]:mt
+  if(nyrs>0) {if(nyrs>1) a1 <- c(a1,rep(1:mt, nyrs-1))
+  a1 <- c(a1,1:x[4])}
+  return(length(a1)) }
+
+
+    
