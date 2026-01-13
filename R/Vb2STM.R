@@ -64,7 +64,8 @@ vb2STM <- function(lbinmin,lbinmax,gap, Linf, k, to, growsd, maxage=30)  {
 
   nlbin <- length(lbin)
   #Function to match the lengthbin
-  finflbin <- function(x) { which(abs(dat$len-x)==min(abs(dat$len-x))) }
+  finflbin <- function(x) {
+    which.min(abs(dat$len - x)) }
   pos <- apply(as.matrix(lbin), 1, finflbin)
   age1 <- (dat$age[pos])
   age2 <- age1+1
