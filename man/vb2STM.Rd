@@ -2,7 +2,7 @@
 % Please edit documentation in R/Vb2STM.R
 \name{vb2STM}
 \alias{vb2STM}
-\title{Convert Von Bertalanffy Growth Parameters to Size Transition Matrix}
+\title{Convert Von Bertalanffy Growth Parameters to Size Transition Matrix with No Shrinkage}
 \usage{
 vb2STM(lbinmin, lbinmax, gap, Linf, k, to, growsd, maxage = 30)
 }
@@ -19,47 +19,76 @@ vb2STM(lbinmin, lbinmax, gap, Linf, k, to, growsd, maxage = 30)
 
 \item{to}{Numeric. Von Bertalanffy theoretical age at length 0}
 
-\item{growsd}{Numeric. Standard deviation of growth variability (measurement error
-and individual variation). Larger values increase uncertainty in transitions.}
+\item{growsd}{Numeric. Standard deviation of growth variability representing
+measurement error and individual variation. Larger values increase uncertainty
+in size transitions.}
 
 \item{maxage}{Numeric. Maximum age for diagnostic plot (default = 30 years)}
 }
 \value{
-A size transition matrix where each column sums to 1, representing
-transition probabilities from one length bin (column) to another (row) over
-one year. Matrix is truncated to the range \link{lbinmin, lbinmax}.
+A lower-triangular size transition matrix where each column sums to 1,
+representing transition probabilities from one length bin (column) to another
+(row) over one year. Matrix has zeros above the diagonal (no backward growth).
+Matrix is trimmed to the range \link{lbinmin, lbinmax}.
 }
 \description{
 Creates a size transition matrix (STM) from Von Bertalanffy growth parameters
-with no-shrinkage constraint. The function accounts for truncation bias when
-preventing backward transitions using truncated normal distribution theory.
+with a strict no-shrinkage constraint. The function optimizes growth increments
+to ensure the resulting no-shrinkage STM matches the target Von Bertalanffy
+growth trajectory when projected forward in time.
 }
 \details{
-The function implements a no-shrinkage constraint by:
-\itemize{
-\item Truncating the normal growth distribution at the current bin
-\item Adjusting the mean growth using inverse Mills ratio to correct for
-truncation bias
-\item Adding the truncated probability mass to the diagonal (staying in same bin)
+This function addresses the challenge of creating a no-shrinkage size transition
+matrix that accurately reproduces Von Bertalanffy growth trajectories. The
+approach works in three steps:
+
+\strong{1. Initial Growth Vector:}
+Calculates initial annual growth increments from the Von Bertalanffy curve for
+each length bin.
+
+\strong{2. Optimization:}
+Uses numerical optimization to find growth multipliers that, when applied to the
+initial growth vector and processed through the no-shrinkage constraint, produce
+an STM that matches the target Von Bertalanffy trajectory when projected forward.
+
+\strong{3. No-Shrinkage Constraint:}
+Builds the STM allowing full forward and backward movement, then post-processes
+to remove backward transitions (sets upper triangle to zero) and adds the lost
+probability mass to the diagonal (staying in same bin).
+
+The optimization is essential because naively preventing shrinkage creates
+systematic upward bias in projected length-at-age, particularly with high growth
+rates (large k) or high variability (large growsd). By optimizing growth
+parameters specifically for the no-shrinkage constraint, the function ensures
+the final STM accurately represents the intended growth dynamics.
+
+A diagnostic plot is produced showing STM-projected median length-at-age (black
+points) with 95\% confidence intervals (green shading) against the target Von
+Bertalanffy curve (red line). Close agreement indicates successful optimization.
 }
-
-This approach maintains consistency with the Von Bertalanffy growth curve even
-with large growth variability (growsd), unlike naive truncation which causes
-upward bias in mean length-at-age.
-
-A diagnostic plot is produced showing STM predictions (black points with 95\% CI)
-against the Von Bertalanffy curve (red line).
+\note{
+The optimization prints progress messages showing the final sum of squared
+errors (SSE) and range of growth multipliers applied. Lower SSE indicates
+better fit to the target trajectory.
 }
 \examples{
-# Create STM for Western Rock Lobster
-stm <- vb2STM(lbinmin = 20, lbinmax = 140, gap = 2,
-              Linf = 120, k = 0.1, to = 0,
-              growsd = 3, maxage = 30)
+# Western Rock Lobster with slow growth (k=0.1)
+stm1 <- vb2STM(lbinmin = 20, lbinmax = 140, gap = 2,
+               Linf = 120, k = 0.1, to = 0,
+               growsd = 2, maxage = 30)
+
+# Fast-growing species (k=0.3)
+stm2 <- vb2STM(lbinmin = 20, lbinmax = 130, gap = 2,
+               Linf = 120, k = 0.3, to = -1,
+               growsd = 2, maxage = 30)
 
 # Check that columns sum to 1
-colSums(stm)
+colSums(stm1)
+
+# Verify no backward transitions
+any(stm1[upper.tri(stm1)] > 0)  # Should be FALSE
 
 }
 \seealso{
-\code{\link{pnorm}}, \code{\link{dnorm}}
+\code{\link{pnorm}}, \code{\link{optim}}
 }
