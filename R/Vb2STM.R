@@ -86,7 +86,7 @@ vb2STM <- function(lbinmin, lbinmax, gap, Linf, k, to, growsd, maxage = 30) {
   lbinL <- lbinL[begin:length(lbinL)]
 
   lbinU <- lbinL + gap
-  lbin <- (lbinU + lbinL) / ((gap - 1) * 2)
+  lbin <- lbinL + (gap/2)
   lbinU[length(lbin)] <- lbinU[length(lbin)] + gap * 20
   lbinL[1] <- abs(lbinL[1] - gap * 10)
 
@@ -189,9 +189,11 @@ vb2STM <- function(lbinmin, lbinmax, gap, Linf, k, to, growsd, maxage = 30) {
     lenout[y, ] <- stm %*% lenout[y - 1, ]
   }
 
+  x <- lenout[2,]
   # Plot
   qfunc <- function(x, y = lbin) {
-    x <- rep(y, x * 1000)
+    mult <- ifelse((x * 100000)<0, 0,(x * 100000))
+    x <- rep(y, mult)
     return(quantile(x, probs = c(0.025, 0.5, 0.975)))
   }
   mn <- apply(lenout, 1, qfunc)
@@ -213,3 +215,4 @@ vb2STM <- function(lbinmin, lbinmax, gap, Linf, k, to, growsd, maxage = 30) {
 
   return(stm2)
 }
+
