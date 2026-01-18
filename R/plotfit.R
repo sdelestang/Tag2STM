@@ -49,13 +49,12 @@ plotfit <- function(){
   estlen <- apply((out$EstRecLen),1,function(x) weighted.mean(lbin, w = x))
   obs <- data.frame(estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
   estlbin <- apply((out$EstRecLen),1,which.max)
-  Obslbin <- tdat$Clbin
-  obs %<>% mutate(estlbin=apply((out$EstRecLen),1,which.max) ,Tlbin=tdat$Tlbin ,Clbin=tdat$Clbin,  reslbin=Clbin-estlbin, ntstep=datain$tsteps)
+  obs %<>% mutate(estlbin=apply((out$EstRecLen),1,which.max), Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  reslbin=Clbin-estlbin, ntstep=datain$tsteps)
 
-  plot(lbin[obs$Tlbin], obs$res, pch=16, col=grey(0.2,0.1), xlab='Release length bin', ylab='Residual')
+  plot(obs$Rlcl, obs$res, pch=16, col=grey(0.2,0.1), xlab='Release length bin', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
-  plot(log(obs$ntstep), obs$res, pch=16, col=grey(0.2,0.1), xlab='Liberty (log months)', ylab='Residual')
+  plot(log(obs$ntstep), obs$res, pch=16, col=grey(0.2,0.1), xlab='Liberty (log number timesteps)', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
 
