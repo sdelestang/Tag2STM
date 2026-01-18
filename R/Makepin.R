@@ -121,7 +121,7 @@ Makepin <- function(avgrowth = 2,
                     LsigGrow = log(0.15),
                     LMerrorRelsigma = 0,
                     LMerrorRecsigma = 0) {
-  nlbin <- length(lbin)
+  nlbin <- length(bins$lbin)
   pin <- list(
     growth_vecpar = rep(c(rep(log(0.2), nlbin - 1), log(0.01)), ntsteps),
     LsigError = LsigError,
