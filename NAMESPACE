@@ -2,7 +2,7 @@
 
 export(MakeLbin)
 export(MakeTsteps)
-export(Mapfunc)
+export(Makemap)
 export(cntTsteps)
 export(growmod)
 export(make_growmod_obj)
