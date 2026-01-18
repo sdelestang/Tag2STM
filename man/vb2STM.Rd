@@ -29,7 +29,7 @@ in size transitions.}
 A lower-triangular size transition matrix where each column sums to 1,
 representing transition probabilities from one length bin (column) to another
 (row) over one year. Matrix has zeros above the diagonal (no backward growth).
-Matrix is trimmed to the range \link{lbinmin, lbinmax}.
+Matrix is trimmed to the range (lbinmin, lbinmax).
 }
 \description{
 Creates a size transition matrix (STM) from Von Bertalanffy growth parameters

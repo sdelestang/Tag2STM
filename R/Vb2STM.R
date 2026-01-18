@@ -19,7 +19,7 @@
 #' @return A lower-triangular size transition matrix where each column sums to 1,
 #'   representing transition probabilities from one length bin (column) to another
 #'   (row) over one year. Matrix has zeros above the diagonal (no backward growth).
-#'   Matrix is trimmed to the range [lbinmin, lbinmax].
+#'   Matrix is trimmed to the range (lbinmin, lbinmax).
 #'
 #' @details
 #' This function addresses the challenge of creating a no-shrinkage size transition

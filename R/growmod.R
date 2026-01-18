@@ -265,11 +265,6 @@
 #' \code{\link{Makepin}} for creating initial parameter values
 #' \code{\link{Makemap}} for controlling which parameters are estimated
 #'
-#' @references
-#' # Add relevant references here, e.g.:
-#' # Wang, Y.G., and Thomas, M.R. (1995). Accounting for individual variability
-#' #   in the von Bertalanffy growth model. Canadian Journal of Fisheries and
-#' #   Aquatic Sciences, 52(7), 1368-1375.
 #'
 #' @export
 growmod <- function(pin) {

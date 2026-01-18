@@ -101,7 +101,7 @@
 #'   \item Custom length-based population models
 #' }
 #'
-#' Each CSV contains an \code{nlbin × nlbin} matrix where element [i,j] represents
+#' Each CSV contains an \code{nlbin × nlbin} matrix where element (i,j) represents
 #' the probability of an animal in length bin j transitioning to length bin i
 #' during that time step.
 #'
