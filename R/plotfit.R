@@ -41,6 +41,7 @@
 #' @export
 plotfit <- function(){
   out <- mod$rep()
+  lbin <- bins$lbin
   lenout <- out$lenout
   par(las=1, mar=c(5,4,1,1))
   lout <- matrix(c(1,2,3,4,5,6), ncol=2, byrow = T)
