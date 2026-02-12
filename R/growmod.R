@@ -302,12 +302,19 @@ growmod <- function(pin) {
     # Build STM using normal distribution of growth
     for (fm in 1:nlbin) {
       growth <- growthmat[ns, fm]
-
       sd_growth <- sigGrowsd
-      #sd_growth <- sigGrowsd * growth
-      # Probability of transitioning from bin fm to bins fm:nlbin
-      stm[fm:nlbin, fm, ns] <- pnorm(lbinU[fm:nlbin], lbin[fm] + growth, sd_growth) -
-        pnorm(lbinL[fm:nlbin], lbin[fm] + growth, sd_growth)
+
+      # Middle bins: normal transitions
+      if (fm + 1 <= nlbin - 1) {
+        stm[(fm+1):(nlbin-1), fm, ns] <- pnorm(lbinU[(fm+1):(nlbin-1)], lbin[fm] + growth, sd_growth) -
+          pnorm(lbinL[(fm+1):(nlbin-1)], lbin[fm] + growth, sd_growth)
+      }
+
+      # Floor: current bin absorbs all probability of staying same size or shrinking
+      stm[fm, fm, ns] <- pnorm(lbinU[fm], lbin[fm] + growth, sd_growth)
+
+      # Ceiling: last bin absorbs everything above its lower bound
+      stm[nlbin, fm, ns] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + growth, sd_growth)
     }
   }
 
