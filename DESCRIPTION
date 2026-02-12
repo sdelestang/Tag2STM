@@ -9,8 +9,7 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Depends:
     R (>= 3.5.0),
-    RTMB
-Imports:
+    RTMB, 
     tidyr,
     dplyr,
     magrittr 

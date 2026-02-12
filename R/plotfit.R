@@ -70,10 +70,10 @@ plotfit <- function(){
   plot(  seq(0,5,0.1), out$sigGrowvec, type='o',ylab="Growth spread (sigma)", xlab='growth')
 
   plot(lbin, lenout[ntsteps,], type='o',pch=16, col=1, ylab='Proportion', xlab='Carapace length', ylim=c(0,max(lenout[ntsteps*1:15,])), xlim=c(min(lbinL),max(lbinL)), main="1,5,10,15,20 years")
-  lines(lbin, lenout[ntsteps*5,], type='o',pch=16, col=2)
-  lines(lbin, lenout[ntsteps*10,], type='o',pch=16, col=3)
-  lines(lbin, lenout[ntsteps*15,], type='o',pch=16, col=4)
-  lines(lbin, lenout[ntsteps*20,], type='o',pch=16, col=5)
+  lines(lbin, lenout[ntsteps*5,]/sum(lenout[ntsteps*5,]), type='o',pch=16, col=2)
+  lines(lbin, lenout[ntsteps*10,]/sum(lenout[ntsteps*10,]), type='o',pch=16, col=3)
+  lines(lbin, lenout[ntsteps*15,]/sum(lenout[ntsteps*15,]), type='o',pch=16, col=4)
+  lines(lbin, lenout[ntsteps*20,]/sum(lenout[ntsteps*20,]), type='o',pch=16, col=5)
   mtext(letters[let], 3, adj=0); let <- let + 1
 
   mxorig <- apply((lenout),1,function(x) weighted.mean(lbin, w = x))
