@@ -369,7 +369,7 @@ growmod <- function(pin) {
   sigGrowvec <- exp(LsigGrow_base) + exp(LsigGrow_prop) * seq(0, 5, 0.1)
 
   # Calculate penalties
-  PensigGrowsd <- -dnorm(LsigGrow, log(1.5), 0.5, log = TRUE)
+  PensigGrowsd <- -sum(dnorm(LsigGrow, log(1.5), 0.5, log = TRUE))
   PenSigError <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
   PenMerrorRel <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
   PenMerrorRec <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
