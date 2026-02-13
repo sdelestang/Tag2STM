@@ -292,9 +292,9 @@ growmod <- function(pin) {
   for (ns in goodts) {
     # Convert log-increments to cumulative growth by length
     growth_vec <- rep(0, nlbin)
-    growth_vec[nlbin] <- exp(growth_vecmat[ns, nlbin])  # Largest bin (near zero)
+    growth_vec[nlbin] <- log(1 + exp(growth_vecmat[ns, nlbin]))
     for (i in (nlbin - 1):1) {
-      growth_vec[i] <- growth_vec[i + 1] + exp(growth_vecmat[ns, i])
+      growth_vec[i] <- growth_vec[i + 1] + log(1 + exp(growth_vecmat[ns, i]))
     }
 
     growthmat[ns, ] <- growth_vec
