@@ -283,7 +283,8 @@ growmod <- function(pin) {
 
   # Transform sigma parameters
   sigError <- exp(LsigError)   # Measurement error SD
-  sigGrowsd <- exp(LsigGrow)   # Growth variability SD
+  LsigGrow_base <- LsigGrow[1]
+  LsigGrow_prop <- LsigGrow[2]
 
   # Reshape growth parameters into matrix
   growth_vecmat <- matrix(growth_vecpar, ncol = nlbin, nrow = ntsteps, byrow = TRUE)
@@ -302,7 +303,7 @@ growmod <- function(pin) {
     # Build STM using normal distribution of growth
     for (fm in 1:nlbin) {
       growth <- growthmat[ns, fm]
-      sd_growth <- sigGrowsd
+      sd_growth <- exp(LsigGrow_base) + exp(LsigGrow_prop) * growth
 
       # Middle bins: normal transitions
       if (fm + 1 <= nlbin - 1) {
@@ -364,7 +365,8 @@ growmod <- function(pin) {
     }
   }
 
-  sigGrowvec <- rep(sigGrowsd, length(seq(0, 5, 0.1)))
+  #sigGrowvec <- rep(sigGrowsd, length(seq(0, 5, 0.1)))
+  sigGrowvec <- exp(LsigGrow_base) + exp(LsigGrow_prop) * seq(0, 5, 0.1)
 
   # Calculate penalties
   PensigGrowsd <- -dnorm(sigGrowsd, log(2.0), 0.5, log = TRUE)
