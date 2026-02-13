@@ -303,7 +303,7 @@ growmod <- function(pin) {
     # Build STM using normal distribution of growth
     for (fm in 1:nlbin) {
       growth <- growthmat[ns, fm]
-      sd_growth <- exp(LsigGrow_base) + exp(LsigGrow_prop) * growth
+      sd_growth <- (exp(LsigGrow_base) + exp(LsigGrow_prop) * growth) * growth
 
       # Middle bins: normal transitions
       if (fm + 1 <= nlbin - 1) {
@@ -366,7 +366,8 @@ growmod <- function(pin) {
   }
 
   #sigGrowvec <- rep(sigGrowsd, length(seq(0, 5, 0.1)))
-  sigGrowvec <- exp(LsigGrow_base) + exp(LsigGrow_prop) * seq(0, 5, 0.1)
+  gseq <- seq(0, 5, 0.1)
+  sigGrowvec <- (exp(LsigGrow_base) + exp(LsigGrow_prop) * gseq) * gseq
 
   # Calculate penalties
   PensigGrowsd <- -sum(dnorm(LsigGrow, log(1.5), 0.5, log = TRUE))
