@@ -50,10 +50,10 @@ plotfit <- function(){
   layout(lout)
   let <- 1;
   estlen <- apply((out$EstRecLen),1,function(x) weighted.mean(lbin, w = x))
-  obs <- data.frame(estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
-  estlbin <- apply((out$EstRecLen),1,which.max)
-  obs %<>% mutate(estlbin=apply((out$EstRecLen),1,which.max), Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  reslbin=Clbin-estlbin, ntstep=datain$tsteps)
-
+  obs <- data.frame(tag=tdat$tag, estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
+  estlbin <- apply((out$EstRecLen),1,function(x) which.max(x)[1])
+  obs %<>% mutate(Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  ntstep=datain$tsteps)
+str(obs)
   plot(obs$Rlcl, obs$res, pch=16, col=grey(0.2,0.1), xlab='Release length bin', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
@@ -92,5 +92,5 @@ plotfit <- function(){
   axis(1,seq(2,((ntsteps*Mxage)+2),ntsteps), 2:(Mxage+2));
   axis(2,las=1)
   mtext(letters[let], 3, adj=0); let <- let + 1
-  return(out) #obs2
+  return(list(out, obs)) #obs2
 }

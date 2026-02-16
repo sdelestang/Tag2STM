@@ -118,7 +118,7 @@
 #' @export
 Makepin <- function(avgrowth = 2,
                     LsigError = log(2),
-                    LsigGrow = rep(log(1.8),2),
+                    LsigGrow = c(log(1.8),-1.5),
                     LMerrorRelsigma = 0,
                     LMerrorRecsigma = 0) {
   nlbin <- length(bins$lbin)

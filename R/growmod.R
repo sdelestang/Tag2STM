@@ -284,7 +284,8 @@ growmod <- function(pin) {
   # Transform sigma parameters
   sigError <- exp(LsigError)   # Measurement error SD
   LsigGrow_base <- LsigGrow[1]
-  LsigGrow_prop <- LsigGrow[2]
+  #LsigGrow_prop <- LsigGrow[2]
+  Lsig_rate <- LsigGrow[2]
 
   # Reshape growth parameters into matrix
   growth_vecmat <- matrix(growth_vecpar, ncol = nlbin, nrow = ntsteps, byrow = TRUE)
@@ -303,7 +304,7 @@ growmod <- function(pin) {
     # Build STM using normal distribution of growth
     for (fm in 1:nlbin) {
       growth <- growthmat[ns, fm]
-      sd_growth <- (exp(LsigGrow_base) + exp(LsigGrow_prop) * growth) * (1 - exp(-growth))
+      sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * growth))
 
       # Middle bins: normal transitions
       if (fm + 1 <= nlbin - 1) {
@@ -367,10 +368,11 @@ growmod <- function(pin) {
 
   #sigGrowvec <- rep(sigGrowsd, length(seq(0, 5, 0.1)))
   gseq <- seq(0, 5, 0.1)
-  sigGrowvec <- (exp(LsigGrow_base) + exp(LsigGrow_prop) * gseq) * (1 - exp(-gseq))
+  sigGrowvec <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * gseq))
 
   # Calculate penalties
-  PensigGrowsd <- -sum(dnorm(LsigGrow, log(1.5), 0.5, log = TRUE))
+  sig_at_5 <- exp(LsigGrow[1]) * (1 - exp(-exp(LsigGrow[2]) * 5))
+  PensigGrowsd <- 1.0 * log(1 + exp(sig_at_5 - 5))
   PenSigError <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
   PenMerrorRel <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
   PenMerrorRec <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
@@ -378,7 +380,7 @@ growmod <- function(pin) {
   drift_penalty <- 0.1 * sum(log(1 + exp(-(growth_vecpar + 10))))
 
   # Total negative log-likelihood
-  TLL <- -sum(LL) + PensigGrowsd + PenSigError + PenMerrorRel + PenMerrorRec + smooth_penalty + drift_penalty
+  TLL <- -sum(LL)  + PenSigError + PenMerrorRel + PenMerrorRec + smooth_penalty + drift_penalty + PensigGrowsd
 
   # Report objects for post-fit examination
   REPORT(LL)
