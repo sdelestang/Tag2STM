@@ -53,7 +53,6 @@ plotfit <- function(){
   obs <- data.frame(tag=tdat$tag, estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
   estlbin <- apply((out$EstRecLen),1,function(x) which.max(x)[1])
   obs %<>% mutate(Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  ntstep=datain$tsteps)
-str(obs)
   plot(obs$Rlcl, obs$res, pch=16, col=grey(0.2,0.1), xlab='Release length bin', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
