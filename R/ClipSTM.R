@@ -160,7 +160,8 @@
 #' @export
 ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
   # Create sequence of length bin lower bounds for subset STM
-  mlbinL <- seq(LowLB, UpLB, Gap)  # Note: Code has typo "LobLB"
+  lbinL <- bins$lbinL
+  mlbinL <- seq(LowLB, UpLB, Gap)
 
   # Process each time step with estimated growth
   for (tt in goodts) {
@@ -182,13 +183,22 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
 
     # Determine sex code (1 = female, 2 = male)
     Sex <- ifelse(unique(tdat$Lsex) == 'F', 1, 2)
-
+    if (exists('a')&!exists('l')) { l <- a }
     # Construct filename
-    if (exists('l')) {
-      Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt, '.csv')
-    } else {
-      Fname <- paste0('STM_s', Sex, '_ts', tt, '.csv')
-    }
+
+    if (exists('p')&exists('l')&exists('Sex')) {
+      Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt,'_p',p, '.csv') }
+    if (exists('p')&!exists('l')&!exists('Sex')) {
+      Fname <- paste0('STM_p',p, '.csv') }
+    if (!exists('p')&exists('l')&!exists('Sex')) {
+      Fname <- paste0('STM_L',l, '.csv') }
+    if (!exists('p')&!exists('l')&exists('Sex')) {
+      Fname <- paste0('STM_s',Sex, '.csv') }
+    if (exists('p')&!exists('l')&exists('Sex')) {
+      Fname <- paste0('STM_s', Sex, '_ts', tt, '_p',p,'.csv') }
+    if (!exists('p')&exists('l')&exists('Sex')) {
+      Fname <- paste0('STM_s', Sex, '_L',l, '_ts', tt,'.csv') }
+
 
     print(paste("Saving:", Fname))
     write.csv(stm2, Fname, row.names = FALSE)
