@@ -376,7 +376,7 @@ growmod <- function(pin) {
   PenSigError <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
   PenMerrorRel <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
   PenMerrorRec <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
-  smooth_penalty <- smoother * sum((growth_vecpar[2:nlbin] - growth_vecpar[1:(nlbin - 1)])^2)
+  smooth_penalty <- smoother * sum((growthmat[goodts, 2:nlbin] - growthmat[goodts, 1:(nlbin-1)])^2)
   drift_penalty <- 0.1 * sum(log(1 + exp(-(growth_vecpar + 10))))
 
   # Total negative log-likelihood
