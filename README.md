@@ -40,57 +40,34 @@ library(dplyr)
 # Load tag-recapture data
 obs <- read.csv("Tag.data.csv")
 
+head(obs) ## input data needs these headings
+>   tag     reldate   recdate      depth rlcl rccl  sex
+>  D07035 1992-10-27 1993-05-11       27 61.7 78.9   F
+>  D07043 1992-10-27 1993-01-24       23 79.9 84.4   M
+>  D07051 1992-10-27 1993-04-17       27 82.3 84.0   F
+>  D07054 1992-10-27 1995-03-27       26 75.2 98.9   F
+>  D07074 1992-10-27 1994-01-06       28 76.5 90.0   F
+
 # Set up length bins (31-173 mm in 2mm increments)
 bins <- MakeLbin(31, 173, 2)
 
-# Clean data: remove missing values, negative liberties
-obs <- obs %>% 
-  filter(!is.na(Ldate), !is.na(sex)) %>% 
-  mutate(Ldays = as.numeric(as.Date(date) - as.Date(Ldate))) %>%  
-  mutate(Lmnth = floor(Ldays/30)) %>% 
-  filter(Ldays > 0 & floor(Ccl) %in% 40:200 & floor(LCl) %in% 40:200) %>%
-  filter(!is.na(Ccl)) %>%  
-  mutate(growth = Ccl - LCl) %>% 
-  filter(sex %in% c('F','M')) %>%  
-  filter(toupper(Lsex) == toupper(sex)) %>% 
-  filter(Lmnth >= 0)
+# Clean data: remove missing values, negative liberties, unusually large growth
 
 # Remove duplicates
-obs <- obs %>% 
-  mutate(id = paste(tag, Ldate, dLon, LdLon, Ccl, LCl)) %>% 
-  filter(!duplicated(id)) %>% 
-  select(-id)
+
 ```
 
 ### 2. Assign Locations and Time Steps
 ```r
 # Assign spatial locations (example: north/south of 30°)
-obs <- obs %>% 
-  mutate(
-    rcloc = ifelse(dLat < 30, 2, 1),
-    rlloc = ifelse(LdLat < 30, 2, 1),
-    sex = ifelse(toupper(sex) == 'M', 2, 1)
-  )
 
 # Define time steps (e.g., quarterly)
-timesteps <- data.frame(month = c(1, 4, 7, 10), halfmonth = c(0, 0, 0, 0))
+timesteps <- data.frame(month=c(1,4,7,10), halfmonth=c(0,0,0,0))
 ntsteps <- nrow(timesteps)
 times <- MakeTsteps(timesteps)
 
 # Add time step information to data
-obs <- obs %>% 
-  mutate(
-    relmn = as.month(Ldate),
-    relhm = ifelse(as.day(Ldate) > 14, 1, 0),
-    recmn = as.month(date),
-    rechm = ifelse(as.day(date) > 14, 1, 0),
-    relts = times$tstep[match(paste(relmn, relhm), paste(times$month, times$hm))],
-    rects = times$tstep[match(paste(recmn, rechm), paste(times$month, times$hm))],
-    relyr = as.year(Ldate),
-    recyr = as.year(date),
-    rccl = Ccl,
-    rlcl = LCl
-  )
+
 
 # Calculate time steps at liberty
 obs$ntstep <- apply(
@@ -107,9 +84,9 @@ s <- 'F'  # Female
 l <- 2    # Location
 
 tdat <- obs %>% 
-  filter(Lsex == s & rlloc == l) %>% 
-  group_by(Lsex, rlloc, rccl, rlcl, relts, ntstep) %>% 
-  summarise(num = length(Lsex))
+  filter(sex == s & rlloc == l) %>% 
+  group_by(tag,relyr,recyr,sex,rlcl,rccl,relts,ntstep) %>% 
+  summarise(num = length(sex))
 
 # Set natural mortality (for plotting)
 M <- 0.14
@@ -141,19 +118,18 @@ for (i in 1:nrow(out)) {
   
   # Prepare data input
   datain <- list(
-    Rccl = tdat$rccl,
-    Rlcl = tdat$rlcl,
-    relts = tdat$relts,
-    tsteps = as.integer(tdat$ntstep),
-    nlob = tdat$num,
-    nlbin = length(lbin),
-    ntsteps = ntsteps,
-    lbinL = lbinL,
-    lbinU = lbinU,
-    lbin = lbin,
-    goodts = goodts,
-    M = M,
-    smoother = 5
+    tagNum=tdat$tag, 
+    Rccl=tdat$rccl, 
+    Rlcl=tdat$rlcl, 
+    relts=tdat$relts, 
+    tsteps=as.integer(tdat$ntstep), 
+    nlob=tdat$num, 
+    nlbin=length(bins$lbin), 
+    ntsteps=ntsteps, 
+    lbinL=bins$lbinL, lbinU=bins$lbinU, lbin=bins$lbin, 
+    goodts=goodts, 
+    M=M, 
+    smoother = 10
   )
   
   # Fit base model (no random effects)
@@ -163,16 +139,15 @@ for (i in 1:nrow(out)) {
                  control = list(eval.max = 2000, iter.max = 2000))
   
   # Calculate fit statistics
-  dout <- plotfit()
-  logLike <- sum(dout$LL)
-  k <- length(mout$par)
-  n <- nrow(tdat)
   
-  out$nLL[i] <- logLike
-  out$AIC[i] <- 2 * k - (2 * logLike)
-  out$BIC[i] <- log(n) * k - (2 * logLike)
+  dout <- plotfit()[[1]]
+  logLike <- sum(dout$LL)
+  out$p[i] <- p
+  out$AIC[i] <- 2*length(mout$par)-(2*logLike)
+  out$BIC[i] <- length(mout$par) * log(nrow(tdat)) + -2 * logLike
+  out$nLL[i] <- -logLike
   out$converge[i] <- mout$convergence
-}
+  }
 
 # View results
 out[order(out$AIC), ]

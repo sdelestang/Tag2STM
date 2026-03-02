@@ -12,5 +12,6 @@ Depends:
     RTMB, 
     tidyr,
     dplyr,
-    magrittr 
+    magrittr,
+    viridis
 RoxygenNote: 7.3.3

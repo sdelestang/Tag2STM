@@ -50,13 +50,19 @@ plotfit <- function(){
   layout(lout)
   let <- 1;
   estlen <- apply((out$EstRecLen),1,function(x) weighted.mean(lbin, w = x))
-  obs <- data.frame(tag=tdat$tag, estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
+  obs <- data.frame(tag=tdat$tag, relyr=tdat$relyr, recyr=tdat$recyr, estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
   estlbin <- apply((out$EstRecLen),1,function(x) which.max(x)[1])
   obs %<>% mutate(Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  ntstep=datain$tsteps)
-  plot(obs$Rlcl, obs$res, pch=16, col=grey(0.2,0.1), xlab='Release length bin', ylab='Residual')
+  ## Setup colours
+  nyrs <- length(unique(obs$recyr))
+  year_colours <- setNames(viridis(nyrs, option = "viridis", alpha = 0.5), sort(unique(obs$recyr)))
+  plot(obs$Rlcl, obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Release length bin', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
-  plot(log(obs$ntstep), obs$res, pch=16, col=grey(0.2,0.1), xlab='Liberty (log number timesteps)', ylab='Residual')
+  plot(log(obs$ntstep), obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Liberty (log number timesteps)', ylab='Residual')
+  abline(h=0,lty=3)
+  mtext(letters[let], 3, adj=0); let <- let + 1
+  plot(obs$relyr, obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Time of release', ylab='Residual')
   abline(h=0,lty=3)
   mtext(letters[let], 3, adj=0); let <- let + 1
 
@@ -70,12 +76,12 @@ plotfit <- function(){
 
   plot(  seq(0,5,0.1), out$sigGrowvec, type='o',ylab="Growth spread (sigma)", xlab='growth')
 
-  plot(lbin, lenout[ntsteps,], type='o',pch=16, col=1, ylab='Proportion', xlab='Carapace length', ylim=c(0,max(lenout[ntsteps*1:15,])), xlim=c(min(lbinL),max(lbinL)), main="1,5,10,15,20 years")
-  lines(lbin, lenout[ntsteps*5,]/sum(lenout[ntsteps*5,]), type='o',pch=16, col=2)
-  lines(lbin, lenout[ntsteps*10,]/sum(lenout[ntsteps*10,]), type='o',pch=16, col=3)
-  lines(lbin, lenout[ntsteps*15,]/sum(lenout[ntsteps*15,]), type='o',pch=16, col=4)
-  lines(lbin, lenout[ntsteps*20,]/sum(lenout[ntsteps*20,]), type='o',pch=16, col=5)
-  mtext(letters[let], 3, adj=0); let <- let + 1
+  # plot(lbin, lenout[ntsteps,], type='o',pch=16, col=1, ylab='Proportion', xlab='Carapace length', ylim=c(0,max(lenout[ntsteps*1:15,])), xlim=c(min(lbinL),max(lbinL)), main="1,5,10,15,20 years")
+  # lines(lbin, lenout[ntsteps*5,]/sum(lenout[ntsteps*5,]), type='o',pch=16, col=2)
+  # lines(lbin, lenout[ntsteps*10,]/sum(lenout[ntsteps*10,]), type='o',pch=16, col=3)
+  # lines(lbin, lenout[ntsteps*15,]/sum(lenout[ntsteps*15,]), type='o',pch=16, col=4)
+  # lines(lbin, lenout[ntsteps*20,]/sum(lenout[ntsteps*20,]), type='o',pch=16, col=5)
+  # mtext(letters[let], 3, adj=0); let <- let + 1
 
   mxorig <- apply((lenout),1,function(x) weighted.mean(lbin, w = x))
   weighted.probs <- function(x) quantile(rep(lbin, 100000*x), probs=c(0.025, 0.5, 0.975))
