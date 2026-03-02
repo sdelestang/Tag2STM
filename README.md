@@ -46,8 +46,13 @@ head(obs) ## input data needs these headings
 # Set up length bins (31-173 mm in 2mm increments)
 bins <- MakeLbin(31, 173, 2)
 
-# Clean data: remove missing values, negative liberties, unusually large growth
-# Remove duplicates
+# Clean data: [tag recapture data is always messy]
+1. All observations need to be within the size bin structure
+2. Remove all missing values (e.g. release length == NA)
+3. Remove all negative liberties
+4. Remove unusually large growth (or extreme shrinkage)
+5. Remove duplicates (same data repeated multiple times)
+5. Remove when unusual things appear to have occurred (e.g. sex has changed between release and recapture) 
 
 ```
 
