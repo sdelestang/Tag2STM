@@ -34,25 +34,19 @@ library(Tag2STM)
 ### 1. Data Preparation
 ```r
 library(Tag2STM)
-library(tidyr)
-library(dplyr)
 
 # Load tag-recapture data
 obs <- read.csv("Tag.data.csv")
 
 head(obs) ## input data needs these headings
->   tag     reldate   recdate      depth rlcl rccl  sex
->  D07035 1992-10-27 1993-05-11       27 61.7 78.9   F
->  D07043 1992-10-27 1993-01-24       23 79.9 84.4   M
->  D07051 1992-10-27 1993-04-17       27 82.3 84.0   F
->  D07054 1992-10-27 1995-03-27       26 75.2 98.9   F
->  D07074 1992-10-27 1994-01-06       28 76.5 90.0   F
+# >   tag     reldate   recdate      depth rlcl rccl  sex
+# >  D07035 1992-10-27 1993-05-11       27 61.7 78.9   F
+
 
 # Set up length bins (31-173 mm in 2mm increments)
 bins <- MakeLbin(31, 173, 2)
 
 # Clean data: remove missing values, negative liberties, unusually large growth
-
 # Remove duplicates
 
 ```
@@ -67,7 +61,7 @@ ntsteps <- nrow(timesteps)
 times <- MakeTsteps(timesteps)
 
 # Add time step information to data
-
+obs %<>% mutate(relmn=as.numeric(format(as.Date(reldate),'%m')),recmn=as.numeric(format(as.Date(recdate),'%m')),relhm=ifelse(format(as.Date(reldate),'%d')<=14,0,1),rechm=ifelse(format(as.Date(recdate),'%d')<=14,0,1), relts=times$tstep[match(paste(relmn,relhm),paste(times$month,times$hm))], rects=times$tstep[match(paste(recmn,rechm),paste(times$month,times$hm))], relyr=as.numeric(format(as.Date(reldate),'%Y')), recyr=as.numeric(format(as.Date(recdate),'%Y')), yrslib = recyr-relyr) %>% as.data.frame()
 
 # Calculate time steps at liberty
 obs$ntstep <- apply(
@@ -79,14 +73,13 @@ obs$ntstep <- apply(
 
 ### 3. Prepare Modeling Data
 ```r
-# Filter to specific sex and location, aggregate by release cohort
+# Filter to specific sex (and location / period / depth), aggregate by release cohort
 s <- 'F'  # Female
-l <- 2    # Location
 
 tdat <- obs %>% 
-  filter(sex == s & rlloc == l) %>% 
+  filter(sex == s) %>% 
   group_by(tag,relyr,recyr,sex,rlcl,rccl,relts,ntstep) %>% 
-  summarise(num = length(sex))
+  summarise(num = length(sex),.groups = "drop_last")
 
 # Set natural mortality (for plotting)
 M <- 0.14
