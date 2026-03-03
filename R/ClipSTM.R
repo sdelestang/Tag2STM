@@ -59,7 +59,7 @@
 #'
 #' Where:
 #' \itemize{
-#'   \item \code{[Sex]}: 1 = female, 2 = male (from \code{tdat$Lsex})
+#'   \item \code{[Sex]}: 1 = female, 2 = male (from \code{tdat$sex})
 #'   \item \code{[l]}: Optional locality/region identifier if defined
 #'   \item \code{[timestep]}: Time step number from \code{goodts}
 #' }
@@ -72,7 +72,7 @@
 #'     containing the growth model results
 #'   \item \code{lbinL}: Vector of length bin lower bounds from the original
 #'     growth model (from \code{datain})
-#'   \item \code{tdat}: Tag-recapture data frame containing \code{Lsex} column
+#'   \item \code{tdat}: Tag-recapture data frame containing \code{sex} column
 #'     with sex information ('F' for female, 'M' for male)
 #'   \item \code{goodts}: Vector of time steps with estimated growth (from \code{datain})
 #'   \item \code{l}: (Optional) Locality or region identifier for file naming
@@ -87,7 +87,7 @@
 #'   \item Files are saved to the current working directory - use \code{setwd()}
 #'     to control output location
 #'   \item All animals in \code{tdat} must have the same sex (function uses
-#'     \code{unique(tdat$Lsex)})
+#'     \code{unique(tdat$sex)})
 #'   \item The function contains a typo in the code: \code{LobLB} should be
 #'     \code{LowLB} in the first line
 #' }
@@ -148,7 +148,7 @@
 #'     \code{UpLB}, or \code{Gap} to match the original bin structure.}
 #'   \item{Column sums ≠ 1}{After subsetting, column sums may be slightly less
 #'     than 1 due to truncation. The renormalization step fixes this.}
-#'   \item{Multiple sexes in data}{The function assumes \code{unique(tdat$Lsex)}
+#'   \item{Multiple sexes in data}{The function assumes \code{unique(tdat$sex)}
 #'     returns a single value. Filter \code{tdat} by sex before calling if needed.}
 #' }
 #'
@@ -182,7 +182,7 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
     stm2[stm2 < 1e-7] <- 0
 
     # Determine sex code (1 = female, 2 = male)
-    Sex <- ifelse(unique(tdat$Lsex) == 'F', 1, 2)
+    Sex <- ifelse(unique(tdat$sex) == 'F', 1, 2)
     if (exists('a')&!exists('l')) { l <- a }
     # Construct filename
 
