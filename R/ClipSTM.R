@@ -189,11 +189,11 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
     if (exists('p')&exists('l')&exists('Sex')) {
       Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt,'_p',p, '.csv') }
     if (exists('p')&!exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_p',p, '.csv') }
+      Fname <- paste0('STM_p',p, '_ts', tt, '.csv') }
     if (!exists('p')&exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_L',l, '.csv') }
+      Fname <- paste0('STM_L',l, '_ts', tt, '.csv') }
     if (!exists('p')&!exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_s',Sex, '.csv') }
+      Fname <- paste0('STM_s',Sex, '_ts', tt, '.csv') }
     if (exists('p')&!exists('l')&exists('Sex')) {
       Fname <- paste0('STM_s', Sex, '_ts', tt, '_p',p,'.csv') }
     if (!exists('p')&exists('l')&exists('Sex')) {
