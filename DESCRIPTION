@@ -13,5 +13,6 @@ Depends:
     tidyr,
     dplyr,
     magrittr,
-    viridis
+    viridis,
+    sp
 RoxygenNote: 7.3.3
