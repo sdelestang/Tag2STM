@@ -39,63 +39,182 @@
 #' @importFrom dplyr mutate
 #' @importFrom magrittr %>% %<>%
 #' @export
-plotfit <- function(){
-  out <- mod$rep()
-  lbin <- bins$lbin
-  lbinL <- bins$lbinL
-  lbinU <- bins$lbinU
+plotfit <- function(datIn=tdat){
+  library(ggplot2)
+  library(patchwork)
+  library(viridis)
+  library(dplyr)
+
+  out    <- mod$rep()
+  lbin   <- bins$lbin
+  lbinL  <- bins$lbinL
   lenout <- out$lenout
-  par(las=1, mar=c(5,4,1,1))
-  lout <- matrix(c(1,2,3,4,5,6), ncol=2, byrow = T)
-  layout(lout)
-  let <- 1;
-  estlen <- apply((out$EstRecLen),1,function(x) weighted.mean(lbin, w = x))
-  obs <- data.frame(tag=tdat$tag, relyr=tdat$relyr, recyr=tdat$recyr, estlen=estlen, obslen=tdat$rccl) %>% mutate(res=obslen-estlen)
-  estlbin <- apply((out$EstRecLen),1,function(x) which.max(x)[1])
-  obs %<>% mutate(Rlcl=datain$Rlcl, Clbin=as.numeric(cut(tdat$rccl, breaks = c(bins$lbinL,(max(bins$lbinL)+30)), include.lowest = T, right = F)),  ntstep=datain$tsteps)
-  ## Setup colours
-  nyrs <- length(unique(obs$recyr))
-  year_colours <- setNames(viridis(nyrs, option = "viridis", alpha = 0.5), sort(unique(obs$recyr)))
-  plot(obs$Rlcl, obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Release length bin', ylab='Residual')
-  abline(h=0,lty=3)
-  mtext(letters[let], 3, adj=0); let <- let + 1
-  plot(log(obs$ntstep), obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Liberty (log number timesteps)', ylab='Residual')
-  abline(h=0,lty=3)
-  mtext(letters[let], 3, adj=0); let <- let + 1
-  plot(obs$relyr, obs$res, pch=16, col=year_colours[as.character(obs$recyr)], xlab='Time of release', ylab='Residual')
-  abline(h=0,lty=3)
-  mtext(letters[let], 3, adj=0); let <- let + 1
 
+  # --- Build obs ---
+  estlen <- apply(out$EstRecLen, 1, function(x) weighted.mean(lbin, w=x))
+  obs <- data.frame(
+    tag    = datIn$tag,
+    relyr  = datIn$relyr,
+    recyr  = datIn$recyr,
+    estlen = estlen,
+    obslen = datIn$rccl,
+    Rlcl   = datIn$rlcl,
+    ntstep = datIn$ntstep,
+    lat    = datIn$dLat,
+    lon    = datIn$dLon
+  ) %>%
+    mutate(res    = obslen - estlen,
+           midyr  = (relyr + recyr) / 2,
+           midyr_rd = round(midyr),
+           Clbin  = as.numeric(cut(datIn$rccl,
+                                   breaks=c(bins$lbinL, max(bins$lbinL)+30),
+                                   include.lowest=TRUE, right=FALSE)))
+
+  # --- Panel a: Residuals vs release length ---
+  pa <- ggplot(obs, aes(x=Rlcl, y=res, colour=midyr)) +
+    geom_point(size=2, alpha=0.7) +
+    geom_hline(yintercept=0, linetype='dashed') +
+    #geom_smooth(method='loess', span=0.4, colour='red', se=FALSE, linewidth=0.5) +
+    scale_colour_viridis_c(option='viridis', name='Mid-year') +
+    labs(x='Release size', y='Residual', tag='a') +
+    theme_bw() +
+    theme(legend.position='none',
+          plot.tag=element_text(face='bold'))
+
+  # --- Panel b: Residuals vs log liberty ---
+  pb <- ggplot(obs, aes(x=log(ntstep + 1), y=res, colour=midyr)) +
+    geom_point(size=2, alpha=0.7) +
+    geom_hline(yintercept=0, linetype='dashed') +
+    #geom_smooth(method='loess', span=0.6, colour='red', se=FALSE, linewidth=0.8) +
+    scale_colour_viridis_c(option='viridis', name='Mid-year') +
+    labs(x='Liberty (log number timesteps)', y='Residual', tag='b') +
+    theme_bw() +
+    theme(legend.position='none',
+          plot.tag=element_text(face='bold'))
+
+  # --- Panel c: Boxplot by mid-year with matching colours ---
+  midyr_vals <- sort(unique(obs$midyr_rd))
+  nmid       <- length(midyr_vals)
+
+  pc <- ggplot(obs, aes(x=factor(midyr_rd), y=res)) +
+    geom_boxplot(fill='grey90', alpha=0.7, outlier.size=1,
+                 colour='grey40', linewidth=0.4) +
+    stat_summary(aes(colour=factor(midyr_rd)),
+                 fun=median, geom='crossbar',
+                 width=0.75, linewidth=1,
+                 show.legend=FALSE) +
+    geom_hline(yintercept=0, linetype='dashed', colour='red') +
+    #geom_smooth(aes(x=as.numeric(factor(midyr_rd)), group=1, fill=NULL),
+    #            method='loess', span=0.9,
+    #            method.args=list(degree=1),
+    #            colour='red', se=FALSE, linewidth=0.8) +
+    scale_colour_viridis_d(option='viridis') +
+    guides(colour='none') +
+    labs(x='Mid-year at liberty', y='Residual', tag='c') +
+    theme_bw() +
+    theme(plot.tag=element_text(face='bold'))
+
+  # --- Panel d: Growth/Moult ---
   growthmat <- out$growthmat[goodts,]
-  mx <- ifelse(max(growthmat)>1,max(growthmat),1)
   if(is.matrix(growthmat)){
-    plot(lbin,growthmat[1,],type='l',ylim=c(0,mx),ylab='Increment',xlab='Length bin',main="Growth/Moult")
-    for(i in 2:nrow(growthmat)){ lines(lbin,growthmat[i,],col=i)  }}
-  if(!is.matrix(growthmat)){
-    plot(lbin,growthmat,type='l',ylim=c(0,mx),ylab='Increment',xlab='Length bin',main="Growth/Moult")}
+    gdf <- do.call(rbind, lapply(1:nrow(growthmat), function(i)
+      data.frame(lbin=lbin, increment=growthmat[i,], ts=factor(i))))
+  } else {
+    gdf <- data.frame(lbin=lbin, increment=growthmat, ts=factor(1))
+  }
+  pd <- ggplot(gdf, aes(x=lbin, y=increment, colour=ts)) +
+    geom_line(linewidth=0.8) +
+    scale_colour_viridis_d(option='plasma') +
+    guides(colour='none') +        # suppress from collection
+    labs(x='Size', y='Increment', title='Growth/Moult', tag='d') +
+    theme_bw() +
+    theme(plot.tag=element_text(face='bold'),
+          plot.title=element_text(hjust=0.5))
 
-  plot(  seq(0,5,0.1), out$sigGrowvec, type='o',ylab="Growth spread (sigma)", xlab='growth')
+  # --- Panel e: Growth spread ---
+  sigdf <- data.frame(growth=seq(0, 5, 0.1), sigma=out$sigGrowvec)
+  pe <- ggplot(sigdf, aes(x=growth, y=sigma)) +
+    geom_point(size=1.5) +
+    geom_line() +
+    labs(x='Growth', y='Spread @ growth (sigma)', tag='e') +
+    theme_bw() +
+    theme(plot.tag=element_text(face='bold'))
 
-  # plot(lbin, lenout[ntsteps,], type='o',pch=16, col=1, ylab='Proportion', xlab='Carapace length', ylim=c(0,max(lenout[ntsteps*1:15,])), xlim=c(min(lbinL),max(lbinL)), main="1,5,10,15,20 years")
-  # lines(lbin, lenout[ntsteps*5,]/sum(lenout[ntsteps*5,]), type='o',pch=16, col=2)
-  # lines(lbin, lenout[ntsteps*10,]/sum(lenout[ntsteps*10,]), type='o',pch=16, col=3)
-  # lines(lbin, lenout[ntsteps*15,]/sum(lenout[ntsteps*15,]), type='o',pch=16, col=4)
-  # lines(lbin, lenout[ntsteps*20,]/sum(lenout[ntsteps*20,]), type='o',pch=16, col=5)
-  # mtext(letters[let], 3, adj=0); let <- let + 1
-
-  mxorig <- apply((lenout),1,function(x) weighted.mean(lbin, w = x))
-  weighted.probs <- function(x) quantile(rep(lbin, 100000*x), probs=c(0.025, 0.5, 0.975))
-  mx <- apply(lenout,1,weighted.probs)
-  xs <- (0:(ntsteps*30))
-  Mxage <-  trunc((3.5 / M)/5)*5 +5
+  # --- Panel f: Growth trajectory ---
+  weighted.probs <- function(x) quantile(rep(lbin, 100000*x),
+                                         probs=c(0.025, 0.5, 0.975))
+  mx_ci   <- apply(lenout, 1, weighted.probs)
+  xs      <- 0:(ntsteps*30)
+  Mxage   <- trunc((3.5/M)/5)*5 + 5
   Mxtstep <- Mxage * ntsteps
+  keep    <- xs < Mxtstep
 
-  plot(xs[xs<Mxtstep],c(lbin[1],mx['50%',])[xs<Mxtstep], type='o', cex=0.1, xlim=c(0,ntsteps*30), ylim=c(0, max(lbinL)), axes=F, xlab='Relative Age (y)', ylab='Carapace length')
-  y0 <- c(lbin[1],mx[2,])[xs<Mxtstep];y1 <- c(lbin[1],mx[1,])[xs<Mxtstep];y2 <- c(lbin[1],mx[3,])[xs<Mxtstep]
-  polygon(c(xs[xs<Mxtstep],rev(xs[xs<Mxtstep])),c(y1[xs<Mxtstep],rev(y2[xs<Mxtstep])),col='grey70',border=NA)
-  lines(xs[xs<Mxtstep],y0[xs<Mxtstep])
-  axis(1,seq(2,((ntsteps*Mxage)+2),ntsteps), 2:(Mxage+2));
-  axis(2,las=1)
-  mtext(letters[let], 3, adj=0); let <- let + 1
-  return(list(out, obs)) #obs2
+  traj_df <- data.frame(
+    ts  = xs[keep],
+    med = c(lbin[1], mx_ci[2,])[keep],
+    lo  = c(lbin[1], mx_ci[1,])[keep],
+    hi  = c(lbin[1], mx_ci[3,])[keep]
+  )
+  # Age axis: timestep -> year labels
+  age_breaks <- seq(2, (ntsteps*Mxage)+2, ntsteps*2)  # every 2 years instead of 1
+  age_labels  <- seq(2, Mxage+2, 2)
+
+  pf <- ggplot(traj_df, aes(x=ts)) +
+    geom_ribbon(aes(ymin=lo, ymax=hi), fill='grey70', alpha=0.8) +
+    geom_line(aes(y=med), linewidth=0.8) +
+    scale_x_continuous(breaks=age_breaks, labels=age_labels) +
+    scale_y_continuous(limits=c(0, max(lbinL))) +
+    labs(x='Relative Age (y)', y='Size', tag='f') +
+    theme_bw() +
+    theme(plot.tag=element_text(face='bold'))
+
+  # --- Panel g: Spatial (conditional) ---
+  has_spatial <- any(!is.na(obs$lat) & !is.na(obs$lon))
+
+  if(has_spatial){
+    obs_sp <- obs %>% filter(!is.na(lat) & !is.na(lon)) %>%
+      mutate(direction = ifelse(res >= 0, 'Positive', 'Negative'),
+             dot_size  = sqrt(abs(res)))
+    pg <- ggplot(obs_sp, aes(x=lon, y=lat, colour=direction, size=dot_size)) +
+      geom_point(alpha=0.7) +
+      scale_colour_manual(values=c('Positive'='#3481c8', 'Negative'='#e84b33'),
+                          name='Residual') +
+      scale_size_continuous(range=c(1, 6), name='|Residual|') +
+      labs(x='Longitude', y='Latitude', tag='g') +
+      theme_bw() +
+      theme(plot.tag=element_text(face='bold'))
+
+    layout <- "
+    AB
+    CD
+    EF
+    GG
+    "
+    final <- pa + pb + pc + pd + pe + pf + pg +
+      plot_layout(design=layout, guides='collect') +
+      plot_annotation(theme=theme(
+        plot.margin=margin(2, 2, 2, 2)
+      )) &
+      theme(
+        legend.position='bottom',
+        legend.margin=margin(0, 0, 0, 0),
+        legend.box.margin=margin(-5, 0, 0, 0),
+        plot.margin=margin(2, 4, 2, 4)
+      )
+  } else {
+    final <- (pa + pb) / (pc + pd) / (pe + pf) +
+      plot_layout(guides='collect') +
+      plot_annotation(theme=theme(
+        plot.margin=margin(2, 2, 2, 2)
+      )) &
+      theme(
+        legend.position='bottom',
+        legend.margin=margin(0, 0, 0, 0),
+        legend.box.margin=margin(-5, 0, 0, 0),
+        plot.margin=margin(2, 4, 2, 4)
+      )
+  }
+
+  suppressWarnings(print(final))
+  return(list(out=out, obs=obs))
 }
