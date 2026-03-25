@@ -4,12 +4,24 @@
 \alias{growmod}
 \title{Tag-Recapture Growth Model with Size Transition Matrices}
 \usage{
-growmod(pin)
+growmod(pin, Like = 1)
 }
 \arguments{
 \item{pin}{List. Parameter list created by \code{\link{Makepin}}, containing
 initial values for all model parameters including growth parameters,
 measurement error terms, and random effects.}
+
+\item{Like}{Integer. Likelihood form to use for comparing projected and observed
+length distributions. Options are:
+\itemize{
+\item \code{1} (default): Asymmetric KL divergence, \eqn{KL(observed \| projected)}.
+Penalises bins where the projected distribution has low mass but the
+observed has high mass. Can be sensitive for long-liberty recaptures where
+the projected distribution is broad.
+\item \code{2}: Symmetric KL divergence, \eqn{KL(P \| Q) + KL(Q \| P)},
+computed as \eqn{-\sum (P - Q) \log(P/Q)}. Treats over- and under-prediction
+of bin mass equally, which may reduce bias for long-liberty observations.
+}}
 }
 \value{
 Scalar numeric value representing the total negative log-likelihood
@@ -96,19 +108,28 @@ distributions across length bins.
 
 \strong{Likelihood Calculation:}
 
-For each tagged animal:
+For each tagged animal, the model:
 \enumerate{
-\item Create release length distribution including measurement error
-\item Project forward through time using STMs for each time step at liberty
-\item Create recapture length distribution including measurement error
-\item Calculate Kullback-Leibler divergence between projected and observed
-distributions
-\item Weight by \code{nlob} (number of animals in release cohort)
+\item Creates a release length distribution including measurement error
+\item Projects forward through time using STMs for each time step at liberty
+\item Creates a recapture length distribution including measurement error
+\item Calculates a divergence measure between projected and observed distributions
+\item Weights by \code{nlob} (number of animals in release cohort)
 }
 
-The likelihood is:
+Two likelihood forms are available via the \code{Like} argument:
+
+\strong{Like = 1} — Asymmetric KL divergence (default):
 \deqn{LL_r = \sum_{l} (p_{obs,l} + \epsilon) \times \log\frac{p_{proj,l} + \epsilon}{p_{obs,l} + \epsilon} \times n_{lob,r}}
-where \code{epsilon = 1e-8} prevents numerical issues.
+
+\strong{Like = 2} — Symmetric KL divergence:
+\deqn{LL_r = -\sum_{l} (p_{proj,l} - p_{obs,l}) \times \log\frac{p_{proj,l}}{p_{obs,l}} \times n_{lob,r}}
+
+In both cases \eqn{\epsilon = 10^{-8}} prevents numerical issues with empty bins.
+The symmetric form (\code{Like = 2}) treats over- and under-prediction of bin
+mass equally and may be preferable when long-liberty recaptures dominate the
+dataset, since the asymmetric form can disproportionately penalise observations
+where the projected distribution is broad relative to the observed spike.
 
 \strong{Time Step Cycling:}
 
@@ -148,7 +169,8 @@ from the smallest length bin, useful for visualizing growth trajectories}
 animal after growth}
 \item{stm}{3D array (\code{nlbin × nlbin × ntsteps}) of size transition
 matrices - the primary output for use in stock assessment models}
-\item{sigGrowvec}{Vector of growth SDs (for legacy compatibility)}
+\item{sigGrowvec}{Vector of growth SDs as a function of growth increment,
+evaluated at \code{seq(0, 5, 0.1)}}
 \item{growthmat}{Matrix of mean growth by length bin and time step}
 \item{MerrorRel}{Estimated individual measurement errors at release}
 \item{MerrorRec}{Estimated individual measurement errors at recapture}
@@ -180,12 +202,16 @@ pin <- Makepin(LsigError = log(2), LsigGrow = log(0.15))
 map <- Makemap(pin, re = FALSE)
 map$LsigError <- NULL  # Estimate measurement error
 
-# 4. Build and fit model
-obj <- MakeADFun(growmod, pin, map = map)
-opt <- nlminb(obj$par, obj$fn, obj$gr)
+# 4. Build and fit model — default asymmetric KL
+obj1 <- make_growmod_obj(pin, datain, Like = 1)
+opt1 <- nlminb(obj1$par, obj1$fn, obj1$gr)
 
-# 5. Extract results
-rep <- obj$report()
+# 5. Compare with symmetric KL
+obj2 <- make_growmod_obj(pin, datain, Like = 2)
+opt2 <- nlminb(obj2$par, obj2$fn, obj2$gr)
+
+# 6. Extract results
+rep <- obj1$report()
 stm_array <- rep$stm  # Use in stock assessment
 growth_curves <- rep$growthmat
 }
@@ -200,6 +226,7 @@ growth_curves <- rep$growthmat
 captured by STM spread, not stochastic growth)
 \item Animals in the same release cohort are exchangeable
 \item Time steps represent biologically meaningful periods (e.g., months, seasons)
+\item Growth parameters are constant across years (no interannual variation)
 }
 }
 
@@ -211,42 +238,42 @@ captured by STM spread, not stochastic growth)
 when \code{random = c("MerrorRel", "MerrorRec")} is specified in \code{MakeADFun()}
 \item Smoothness penalty improves numerical stability and prevents overfitting
 \item The \code{eps = 1e-8} term prevents log(0) in likelihood calculation
+\item The \code{Like} argument is passed via closure in \code{make_growmod_obj()}
+and is not differentiated by RTMB — it is a structural switch only
 }
 }
 
 \examples{
 \dontrun{
-# Example 1: Basic model fit
-datain <- PrepareTagData(tagdata)  # Hypothetical data prep function
+# Example 1: Basic model fit with default likelihood
+datain <- PrepareTagData(tagdata)
 pin <- Makepin()
-map <- Makemap(pin, re = FALSE)
-obj <- MakeADFun(growmod, pin, map = map)
+obj <- make_growmod_obj(pin, datain, Like = 1)
 opt <- nlminb(obj$par, obj$fn, obj$gr)
 
-# Extract STMs for stock assessment
-rep <- obj$report()
-stm_monthly <- rep$stm
+# Example 2: Symmetric KL likelihood
+obj_sym <- make_growmod_obj(pin, datain, Like = 2)
+opt_sym <- nlminb(obj_sym$par, obj_sym$fn, obj_sym$gr)
 
-# Example 2: Model with estimated measurement error and random effects
+# Compare parameter estimates
+rbind(
+  asymmetric = opt$par,
+  symmetric  = opt_sym$par
+)
+
+# Example 3: Model with estimated measurement error and random effects
 pin <- Makepin(LMerrorRelsigma = log(0.5), LMerrorRecsigma = log(0.5))
-map <- Makemap(pin, re = TRUE)
-map$LsigError <- NULL  # Estimate
-map$LMerrorRelsigma <- NULL
-map$LMerrorRecsigma <- NULL
-
-obj <- MakeADFun(
-  growmod,
-  pin,
-  map = map,
-  random = c("MerrorRel", "MerrorRec")
+obj <- make_growmod_obj(
+  pin, datain,
+  map = list(),
+  random = c("MerrorRel", "MerrorRec"),
+  Like = 1
 )
 opt <- nlminb(obj$par, obj$fn, obj$gr)
 sdr <- sdreport(obj)
 
-# Example 3: Visualize growth patterns
+# Example 4: Visualize growth patterns
 rep <- obj$report()
-
-# Plot growth by length and season
 library(ggplot2)
 growth_df <- as.data.frame(rep$growthmat)
 names(growth_df) <- datain$lbin
@@ -260,24 +287,12 @@ ggplot(growth_long, aes(x = as.numeric(as.character(variable)),
        y = "Growth Increment (mm)",
        color = "Time Step") +
   theme_minimal()
-
-# Example 4: Examine fit quality
-plot_df <- data.frame(
-  observed = datain$Rccl,
-  projected = apply(rep$EstRecLen, 1, function(x) sum(x * datain$lbin)),
-  residual = datain$Rccl - apply(rep$EstRecLen, 1, function(x) sum(x * datain$lbin))
-)
-
-ggplot(plot_df, aes(x = observed, y = projected)) +
-  geom_point(alpha = 0.3) +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  labs(x = "Observed Recapture Length",
-       y = "Model-Projected Length") +
-  theme_minimal()
 }
 
 }
 \seealso{
-\code{\link{Makepin}} for creating initial parameter values
-\code{\link{Makemap}} for controlling which parameters are estimated
+\code{\link{Makepin}} for creating initial parameter values,
+\code{\link{Makemap}} for controlling which parameters are estimated,
+\code{\link{make_growmod_obj}} for constructing the RTMB objective function
+with likelihood choice
 }

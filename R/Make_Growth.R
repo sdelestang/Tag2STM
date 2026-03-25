@@ -8,25 +8,19 @@
 #' @param map Optional parameter map
 #' @param random Optional random effects
 #' @export
-make_growmod_obj <- function(pin, datain = NULL, map = list(), random = NULL) {
-
-  # If datain provided, put it in global env
+make_growmod_obj <- function(pin, datain = NULL, map = list(), random = NULL, Like = 1) {
   if(!is.null(datain)) {
     assign("datain", datain, envir = .GlobalEnv)
   }
-
-  # Copy growmod to global environment to avoid package namespace issues
   growmod_local <- growmod
   environment(growmod_local) <- .GlobalEnv
 
-  # Create objective
   obj <- MakeADFun(
-    func = function(p) growmod_local(p),
+    func = function(p) growmod_local(p, Like = Like),  # Like captured from enclosing scope
     parameters = pin,
     map = map,
     random = random,
     silent = FALSE
   )
-
   return(obj)
 }

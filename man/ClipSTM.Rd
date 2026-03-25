@@ -70,7 +70,7 @@ Output files are named as:
 
 Where:
 \itemize{
-\item \code{[Sex]}: 1 = female, 2 = male (from \code{tdat$Lsex})
+\item \code{[Sex]}: 1 = female, 2 = male (from \code{tdat$sex})
 \item \code{[l]}: Optional locality/region identifier if defined
 \item \code{[timestep]}: Time step number from \code{goodts}
 }
@@ -83,7 +83,7 @@ The function expects the following objects to exist:
 containing the growth model results
 \item \code{lbinL}: Vector of length bin lower bounds from the original
 growth model (from \code{datain})
-\item \code{tdat}: Tag-recapture data frame containing \code{Lsex} column
+\item \code{tdat}: Tag-recapture data frame containing \code{sex} column
 with sex information ('F' for female, 'M' for male)
 \item \code{goodts}: Vector of time steps with estimated growth (from \code{datain})
 \item \code{l}: (Optional) Locality or region identifier for file naming
@@ -99,7 +99,7 @@ issues in stock assessment models
 \item Files are saved to the current working directory - use \code{setwd()}
 to control output location
 \item All animals in \code{tdat} must have the same sex (function uses
-\code{unique(tdat$Lsex)})
+\code{unique(tdat$sex)})
 \item The function contains a typo in the code: \code{LobLB} should be
 \code{LowLB} in the first line
 }
@@ -128,7 +128,7 @@ specified length bins don't exist in the growth model. Adjust \code{LowLB},
 \code{UpLB}, or \code{Gap} to match the original bin structure.}
 \item{Column sums ≠ 1}{After subsetting, column sums may be slightly less
 than 1 due to truncation. The renormalization step fixes this.}
-\item{Multiple sexes in data}{The function assumes \code{unique(tdat$Lsex)}
+\item{Multiple sexes in data}{The function assumes \code{unique(tdat$sex)}
 returns a single value. Filter \code{tdat} by sex before calling if needed.}
 }
 }

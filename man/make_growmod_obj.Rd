@@ -4,7 +4,7 @@
 \alias{make_growmod_obj}
 \title{Create RTMB objective from growmod with proper environment}
 \usage{
-make_growmod_obj(pin, datain = NULL, map = list(), random = NULL)
+make_growmod_obj(pin, datain = NULL, map = list(), random = NULL, Like = 1)
 }
 \arguments{
 \item{pin}{Parameter list}

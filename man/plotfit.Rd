@@ -4,7 +4,7 @@
 \alias{plotfit}
 \title{Plot Tag-Recapture Model Diagnostics}
 \usage{
-plotfit()
+plotfit(datIn = tdat)
 }
 \value{
 Invisibly returns the model report object from \code{mod$rep()}.

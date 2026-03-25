@@ -7,7 +7,7 @@
 Makepin(
   avgrowth = 2,
   LsigError = log(2),
-  LsigGrow = log(0.15),
+  LsigGrow = c(log(1.8), -1.5),
   LMerrorRelsigma = 0,
   LMerrorRecsigma = 0
 )
