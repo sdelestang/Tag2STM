@@ -267,7 +267,7 @@
 #'
 #'
 #' @export
-growmod <- function(pin) {
+growmod <- function(pin, Like=1) {
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
   nobs <- length(Rccl)
@@ -347,7 +347,13 @@ growmod <- function(pin) {
 
     # Calculate KL-divergence weighted by cohort size
     eps <- 1e-8
-    LL[r] <- sum((EstCapLen[r, ] + eps) * log((EstRecLen[r, ] + eps) / (EstCapLen[r, ] + eps))) * nlob[r]
+    if(Like==1){
+      LL[r] <- sum((EstCapLen[r, ] + eps) * log((EstRecLen[r, ] + eps) / (EstCapLen[r, ] + eps))) * nlob[r] }
+    if(Like==2){
+      P <- EstRecLen[r,] + eps   # predicted
+      Q <- EstCapLen[r,] + eps   # observed
+      LL[r] <- -sum((P - Q) * log(P / Q)) * nlob[r]}
+
   }
 
   ## Create growth trajectory output (30 years starting from smallest bin)
