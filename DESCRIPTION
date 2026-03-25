@@ -14,5 +14,7 @@ Depends:
     dplyr,
     magrittr,
     viridis,
-    sp
+    sp,
+    maps,
+    mapdata
 RoxygenNote: 7.3.3
