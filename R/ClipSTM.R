@@ -158,15 +158,50 @@
 #' \code{\link{Mapfunc}} for parameter mapping
 #'
 #' @export
-ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
+ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE) {
   # Create sequence of length bin lower bounds for subset STM
   lbinL <- bins$lbinL
   mlbinL <- seq(LowLB, UpLB, Gap)
 
-  # Process each time step with estimated growth
-  for (tt in goodts) {
-    # Extract STM for this time step from fitted model
-    stm <- mod$report()$stm[, , tt]
+  if(Annual) {
+    stm <- mod$report()$stm[, , goodts]
+    dim3 <- dim(stm)[3]
+    if(dim3==2) stm <- stm[,,1] %*% stm[,,2]
+    if(dim3==3) stm <- stm[,,1] %*% stm[,,2] %*% stm[,,3]
+    if(dim3==4) stm <- stm[,,1] %*% stm[,,2] %*% stm[,,3] %*% stm[,,4]
+
+    lenout <- matrix(0, ncol = ncol(stm), nrow = 30)
+    lenout[1, 1] <- 1
+    for (y in 2:30) {
+     lenout[y, ] <- (stm) %*% lenout[y - 1, ]
+    }
+    templen <- apply(lenout, 1, function(x) {
+      wm  <- weighted.mean(bins$lbin, x)
+      wv  <- sum(x * (bins$lbin - wm)^2) / sum(x)  # weighted variance
+      wsd <- sqrt(wv)
+      n   <- sum(x > 0)                              # effective n (non-zero bins)
+      se  <- wsd / sqrt(n)
+      c(mean = wm,
+        lo95 = wm - 1.96 * se,
+        hi95 = wm + 1.96 * se)
+    }) %>% t() %>% as.data.frame()
+
+    templen$step <- seq_len(nrow(templen))
+
+    ggplot(templen, aes(x = step)) +
+      geom_ribbon(aes(ymin = lo95, ymax = hi95), fill = "#378ADD", alpha = 0.15) +
+      geom_line(aes(y = mean), colour = "#185FA5", linewidth = 0.8) +
+      geom_point(aes(y = mean), colour = "#185FA5", size = 1.8) +
+      labs(
+        x     = "Annual Time step",
+        y     = "Mean length (mm)",
+        title = "Mean length-at-age with 95% CI"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        panel.grid.minor = element_blank(),
+        plot.title       = element_text(size = 13, face = "plain")
+      )
 
     # Find which rows/columns correspond to desired length bins
     tokeep <- match(mlbinL, lbinL)
@@ -182,27 +217,69 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2) {
     stm2[stm2 < 1e-7] <- 0
 
     # Determine sex code (1 = female, 2 = male)
-    Sex <- ifelse(unique(tdat$sex) == 'F', 1, 2)
+    Sex <- ifelse(unique(tdat$Lsex) == 'F', 'Fem', 'Male')
     if (exists('a')&!exists('l')) { l <- a }
     # Construct filename
 
     if (exists('p')&exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt,'_p',p, '.csv') }
+      Fname <- paste0('STM_', Sex, '_L', l, '_p',p, '_Annual.csv') }
     if (exists('p')&!exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_p',p, '_ts', tt, '.csv') }
+      Fname <- paste0('STM_p',p, '_Annual.csv') }
     if (!exists('p')&exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_L',l, '_ts', tt, '.csv') }
+      Fname <- paste0('STM_L',l, '_Annual.csv') }
     if (!exists('p')&!exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_s',Sex, '_ts', tt, '.csv') }
+      Fname <- paste0('STM_',Sex, '_Annual.csv') }
     if (exists('p')&!exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_s', Sex, '_ts', tt, '_p',p,'.csv') }
+      Fname <- paste0('STM_', Sex, '_p',p, '_Annual.csv') }
     if (!exists('p')&exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_s', Sex, '_L',l, '_ts', tt,'.csv') }
-
+      Fname <- paste0('STM_', Sex, '_L',l,  '_Annual.csv') }
 
     print(paste("Saving:", Fname))
     write.csv(stm2, Fname, row.names = FALSE)
-  }
 
+
+  }
+  # Process each time step with estimated growth
+    if(!Annual){
+      for (tt in goodts) {
+      # Extract STM for this time step from fitted model
+      stm <- mod$report()$stm[, , tt]
+
+      # Find which rows/columns correspond to desired length bins
+      tokeep <- match(mlbinL, lbinL)
+
+      # Subset to create smaller STM
+      stm2 <- stm[tokeep, tokeep]
+
+      # Renormalize columns to sum to 1 (critical for stock assessment)
+      funcsum <- function(x) { x / sum(x, na.rm = TRUE) }
+      stm2 <- apply(stm2, 2, funcsum)
+
+      # Set very small probabilities to exactly zero
+      stm2[stm2 < 1e-7] <- 0
+
+      # Determine sex code (1 = female, 2 = male)
+      Sex <- ifelse(unique(tdat$Lsex) == 'F', 1, 2)
+      if (exists('a')&!exists('l')) { l <- a }
+      # Construct filename
+
+      if (exists('p')&exists('l')&exists('Sex')) {
+        Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt,'_p',p, '.csv') }
+      if (exists('p')&!exists('l')&!exists('Sex')) {
+        Fname <- paste0('STM_p',p, '_ts', tt, '.csv') }
+      if (!exists('p')&exists('l')&!exists('Sex')) {
+        Fname <- paste0('STM_L',l, '_ts', tt, '.csv') }
+      if (!exists('p')&!exists('l')&exists('Sex')) {
+        Fname <- paste0('STM_s',Sex, '_ts', tt, '.csv') }
+      if (exists('p')&!exists('l')&exists('Sex')) {
+        Fname <- paste0('STM_s', Sex, '_ts', tt, '_p',p,'.csv') }
+      if (!exists('p')&exists('l')&exists('Sex')) {
+        Fname <- paste0('STM_s', Sex, '_L',l, '_ts', tt,'.csv') }
+
+
+      print(paste("Saving:", Fname))
+      write.csv(stm2, Fname, row.names = FALSE)
+    }
+}
   invisible(NULL)
 }
