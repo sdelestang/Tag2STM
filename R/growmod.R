@@ -315,6 +315,7 @@ growmod <- function(pin, Like=1) {
     growthmat[ns, ] <- growth_vec
 
     # Build STM using normal distribution of growth
+
     for (fm in 1:nlbin) {
       growth <- growthmat[ns, fm]
       sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * growth))
@@ -335,7 +336,7 @@ growmod <- function(pin, Like=1) {
       # Rescale to sum to 1 (truncated normal)
       stm[fm:nlbin, fm, ns] <- probs[fm:nlbin] / sum(probs[fm:nlbin])
     }
-  }
+      }
 
   ## Calculate likelihood for each tagged animal
   for (r in 1:nobs) {
