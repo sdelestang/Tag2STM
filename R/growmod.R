@@ -319,17 +319,21 @@ growmod <- function(pin, Like=1) {
       growth <- growthmat[ns, fm]
       sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * growth))
 
-      # Middle bins: normal transitions
-      if (fm + 1 <= nlbin - 1) {
-        stm[(fm+1):(nlbin-1), fm, ns] <- pnorm(lbinU[(fm+1):(nlbin-1)], lbin[fm] + growth, sd_growth) -
-          pnorm(lbinL[(fm+1):(nlbin-1)], lbin[fm] + growth, sd_growth)
+      probs <- rep(0, nlbin)
+
+      # Normal probabilities for bins fm to nlbin
+      for (k in fm:nlbin) {
+        if (k < nlbin) {
+          probs[k] <- pnorm(lbinU[k], lbin[fm] + growth, sd_growth) -
+            pnorm(lbinL[k], lbin[fm] + growth, sd_growth)
+        } else {
+          # Ceiling bin still absorbs upper tail
+          probs[k] <- 1 - pnorm(lbinL[k], lbin[fm] + growth, sd_growth)
+        }
       }
 
-      # Floor: current bin absorbs all probability of staying same size or shrinking
-      stm[fm, fm, ns] <- pnorm(lbinU[fm], lbin[fm] + growth, sd_growth)
-
-      # Ceiling: last bin absorbs everything above its lower bound
-      stm[nlbin, fm, ns] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + growth, sd_growth)
+      # Rescale to sum to 1 (truncated normal)
+      stm[fm:nlbin, fm, ns] <- probs[fm:nlbin] / sum(probs[fm:nlbin])
     }
   }
 
