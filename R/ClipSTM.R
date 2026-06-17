@@ -15,6 +15,9 @@
 #' @param Gap Numeric. Width of length bins (in mm) for the subset STM. This
 #'   defines the resolution of the output matrix and should typically match the
 #'   bin width used in the stock assessment model. Default is 2 mm.
+#' @param Annual Logical. Should the function compound STMs into an annual STM.
+#' @param return Logical. Should the function return an STM and not save.
+#'
 #'
 #' @return NULL (invisibly). The function is called for its side effect of writing
 #'   CSV files to the current working directory.
@@ -158,7 +161,7 @@
 #' \code{\link{Mapfunc}} for parameter mapping
 #'
 #' @export
-ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE) {
+ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE, return =  FALSE) {
   # Create sequence of length bin lower bounds for subset STM
   lbinL <- bins$lbinL
   mlbinL <- seq(LowLB, UpLB, Gap)
@@ -173,7 +176,7 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE) {
     lenout <- matrix(0, ncol = ncol(stm), nrow = 30)
     lenout[1, 1] <- 1
     for (y in 2:30) {
-     lenout[y, ] <- (stm) %*% lenout[y - 1, ]
+      lenout[y, ] <- (stm) %*% lenout[y - 1, ]
     }
     templen <- apply(lenout, 1, function(x) {
       wm  <- weighted.mean(bins$lbin, x)
@@ -234,14 +237,14 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE) {
     if (!exists('p')&exists('l')&exists('Sex')) {
       Fname <- paste0('STM_', Sex, '_L',l,  '_Annual.csv') }
 
-    print(paste("Saving:", Fname))
-    write.csv(stm2, Fname, row.names = FALSE)
-
+    if(return==FALSE) {print(paste("Saving:", Fname))
+      write.csv(stm2, Fname, row.names = FALSE)}
+    if(return==TRUE) return(stm2)
 
   }
   # Process each time step with estimated growth
-    if(!Annual){
-      for (tt in goodts) {
+  if(!Annual){
+    for (tt in goodts) {
       # Extract STM for this time step from fitted model
       stm <- mod$report()$stm[, , tt]
 
@@ -280,6 +283,6 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE) {
       print(paste("Saving:", Fname))
       write.csv(stm2, Fname, row.names = FALSE)
     }
-}
+  }
   invisible(NULL)
 }

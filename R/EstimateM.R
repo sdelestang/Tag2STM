@@ -65,10 +65,10 @@
 #' }
 #'
 #' @export
-EstimateM <- function(obs,
+EstimateM <- function(obs=EstM,
                       dout,
                       bins,
-                      M_range = c(0.01, 1.0),
+                      M_range = c(0.1, 1.0),
                       plot    = TRUE) {
 
   ## ── 0. Input checks ──────────────────────────────────────────────────────────
@@ -90,13 +90,13 @@ EstimateM <- function(obs,
 
   ## ── 1. Build annual STM via ClipSTM ──────────────────────────────────────────
   n_bins <- length(bins$lbin)
-  low_lb <- bins$lbinL[1] + 20                        # undo padding on first bin
+  low_lb <- bins$lbinL[2]
   up_lb  <- bins$lbinL[length(bins$lbinL) - 1]        # second-last lower bound
   gap    <- bins$lbinU[2] - bins$lbinL[2]             # bin width from non-padded bin
 
   message(sprintf("Building annual STM via ClipSTM(%g, %g, %g, Annual=TRUE).",
                   low_lb, up_lb, gap))
-  STM_annual <- ClipSTM(low_lb, up_lb, gap, Annual = TRUE)
+  STM_annual <- ClipSTM(low_lb, up_lb, gap, Annual = TRUE, return =  TRUE)
 
   if (!is.matrix(STM_annual) || nrow(STM_annual) != ncol(STM_annual))
     stop("ClipSTM did not return a square matrix — check bins and dout.")
