@@ -16,5 +16,6 @@ Depends:
     viridis,
     sp,
     maps,
-    mapdata
+    mapdata,
+    zoo
 Config/roxygen2/version: 8.0.0

@@ -4,7 +4,7 @@
 \alias{ClipSTM}
 \title{Extract Subset of Size Transition Matrix for Stock Assessment}
 \usage{
-ClipSTM(LowLB = 41, UpLB = 151, Gap = 2, Annual = FALSE)
+ClipSTM(LowLB = 41, UpLB = 151, Gap = 2, Annual = FALSE, return = FALSE)
 }
 \arguments{
 \item{LowLB}{Numeric. Lower bound of the smallest length bin to include in
@@ -18,6 +18,10 @@ Default is 151 mm.}
 \item{Gap}{Numeric. Width of length bins (in mm) for the subset STM. This
 defines the resolution of the output matrix and should typically match the
 bin width used in the stock assessment model. Default is 2 mm.}
+
+\item{Annual}{Logical. Should the function compound STMs into an annual STM.}
+
+\item{return}{Logical. Should the function return an STM and not save.}
 }
 \value{
 NULL (invisibly). The function is called for its side effect of writing

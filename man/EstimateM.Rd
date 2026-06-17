@@ -4,75 +4,121 @@
 \alias{EstimateM}
 \title{Estimate Natural Mortality from Tag-Recapture Data Using Size-Structured Survival}
 \usage{
-EstimateM(obs, dout, bins, M_range = c(0.01, 1), plot = TRUE)
+EstimateM(
+  obs,
+  dout,
+  bins,
+  min_cut = NULL,
+  n_consec = 3L,
+  step_mm = 1,
+  n_steps = 20L,
+  min_recap = 50L,
+  lambda = 0.3,
+  M_range = c(0.01, 0.5),
+  plot = TRUE
+)
 }
 \arguments{
-\item{obs}{Data frame with two columns:
+\item{obs}{Data frame with three columns:
 \itemize{
-\item \code{release_len} - Carapace length at release (mm), no NAs permitted
+\item \code{release_len} - Carapace length at release (mm), no NAs
 \item \code{isrecap} - Binary recapture outcome (1 = recaptured, 0 = not)
-}}
+\item \code{Liberty} - Days at liberty. For recaptured animals: recapture
+date minus release date. For non-recaptured animals: today's date (or
+study end date) minus release date (right-censored).
+}
+Should contain \strong{all} releases including sub-legal animals so that
+the auto min-size cut correctly identifies the gear selectivity ramp-up.}
 
 \item{dout}{List output from the best fitted Tag2STM model. Must contain
 \code{$stm} as a 3D array \code{[n_bins x n_bins x n_tsteps]}.}
 
 \item{bins}{List returned by \code{MakeLbin()}. Must contain \code{$lbin}
-(midpoints), \code{$lbinL} (lower bounds), and \code{$lbinU} (upper bounds).
-The annual STM is constructed internally via
-\code{ClipSTM(lbinL[1]+20, lbinL[n-1], gap, Annual = TRUE)}.}
+(midpoints), \code{$lbinL} (lower bounds), and \code{$lbinU} (upper bounds).}
 
-\item{M_range}{Numeric vector of length 2 giving the search range for M (annual
-rate). Default \code{c(0.01, 1.0)}.}
+\item{min_cut}{Optional numeric. Starting minimum size cut (mm). If NULL
+(default), determined automatically as the first size bin after which
+recapture rate declines for at least \code{n_consec} consecutive bins.}
 
-\item{plot}{Logical. If TRUE produces four diagnostic plots. Default TRUE.}
+\item{n_consec}{Integer. Consecutive declining bins for auto min_cut. Default 3.}
+
+\item{step_mm}{Numeric. Increment (mm) for profiling over min_cut. Default 1.}
+
+\item{n_steps}{Integer. Maximum number of min_cut steps to profile. Default 20.}
+
+\item{min_recap}{Integer. Stop profiling if fewer recaptures remain. Default 50.}
+
+\item{lambda}{Numeric. Decay constant controlling how steeply liberty weight
+increases with time at liberty (years). Weight for non-recaptured animal i is
+\eqn{1 - \exp(-\lambda \cdot t_i)}. Recaptured animals always have weight 1.
+Higher lambda gives more weight to long-unseen animals. Default 0.3.}
+
+\item{M_range}{Numeric vector of length 2. Search range for M. Default
+\code{c(0.01, 0.5)}.}
+
+\item{plot}{Logical. If TRUE produces diagnostic plots. Default TRUE.}
 }
 \value{
 Invisibly returns a list with components:
 \itemize{
-\item \code{M_est} - MLE of M (annual rate)
-\item \code{M_ci} - 95\\% confidence interval from likelihood profile
-\item \code{nll_profile} - Data frame of M values and delta NLL
-\item \code{age_at_release} - Relative age (moult-years) at release per animal
-\item \code{n_recap} - Number recaptured
-\item \code{n_total} - Total animals
+\item \code{M_est} - Weighted central M estimate across stable plateau steps
+\item \code{M_ci} - 95\\% CI for M from best-fitting plateau step
+\item \code{cut_profile} - Data frame with min_cut, M_est, M_lwr, M_upr,
+n_recap, ci_width, ssr at each step
+\item \code{min_cut_auto} - Auto-detected starting min_cut (mm)
+\item \code{age_at_release} - Fractional ages from the starting min_cut step
+\item \code{nll_profile} - NLL profile from the starting min_cut step
 }
 }
 \description{
-Uses the relative recapture rates across release size classes to estimate natural
-mortality (M). The key insight is that under homogenous, size-independent fishing
-mortality (F), the ratio of recapture probabilities between size classes depends
-only on M — F cancels completely. Animals at larger sizes at release have accumulated
-more M to reach that size and have fewer years remaining, making them
-disproportionately less likely to be recaptured when M is high.
+Estimates natural mortality (M) from binary tag-recapture outcomes using two
+complementary signals:
+\enumerate{
+\item \strong{Size at release} — converted to relative age via a fitted STM.
+Under constant, size-independent F, the ratio of recapture probabilities
+across size classes depends only on M (F cancels analytically).
+\item \strong{Time at liberty} — used as a weight on each animal's likelihood
+contribution. A crab not seen after 4 years is stronger evidence of low
+survival than one not seen after 1 year. Liberty is NOT used to estimate Z
+absolutely (too many confounders: tag loss, spatial movement, reporting rate
+variation) but purely to up-weight long-unseen animals in the Bernoulli NLL.
+}
 }
 \details{
-The annual STM is constructed from \code{dout$stm} via \code{ClipSTM(Annual = TRUE)},
-which compounds only the active growth timesteps (e.g. timesteps 1 and 3 where
-growth is non-zero) and clips to the size range defined by \code{bins}.
+The liberty-weighted Bernoulli NLL for animal \eqn{i} is:
 
-Relative age at release for each animal is estimated by propagating a unit cohort
-forward from the smallest size bin through the annual STM, recording the number of
-annual steps until the modal bin reaches the observed release size.
+\deqn{\ell_i = w_i \left[ y_i \log(p_i) + (1 - y_i) \log(1 - p_i) \right]}
 
-Recapture probability for animal \code{i} with relative age \code{a_i} is:
+where \eqn{y_i} is the recapture indicator, \eqn{p_i} is the size-based
+relative recapture probability, and the liberty weight is:
 
-\deqn{p_i = \frac{\exp(-M \cdot a_i)}{\sum_j \exp(-M \cdot a_j)} \times N_{recap}}
+\deqn{w_i = \begin{cases} 1 & \text{if recaptured} \\ 1 - \exp(-\lambda t_i) & \text{if not recaptured} \end{cases}}
 
-F cancels in this relative formulation. M is estimated by minimising the Bernoulli
-negative log-likelihood and profiled for 95\\% CI using a chi-squared threshold of
-1.92 (= qchisq(0.95, 1) / 2).
+A crab not seen after 4 years (\eqn{t = 4}) receives weight
+\eqn{1 - e^{-0.3 \times 4} \approx 0.70} versus \eqn{1 - e^{-0.3 \times 1} \approx 0.26}
+for one at liberty only 1 year, correctly reflecting that the longer absence
+is stronger evidence of death.
 }
 \note{
-Assumes F and reporting rate are size-independent. Size-selective gear would
-bias M estimates upward.
+Assumes F and reporting rate are size-independent above \code{min_cut}.
+Liberty is used for weighting only — Z and F are not estimated. Fisher
+targeting of larger animals and spatial depth refuge will cause upward bias in M.
 }
 \examples{
 \dontrun{
-bins <- MakeLbin(start = 50, stop = 178, gap = 2)
-obs2 <- obs[, c("LCl", "isrecap")]
-colnames(obs2) <- c("release_len", "isrecap")
+bins <- MakeLbin(start = 50, stop = 198, gap = 2)
+EstM <- obs \%>\%
+  filter(!is.na(LCl)) \%>\%
+  rename(release_len = LCl) \%>\%
+  mutate(
+    Ldate   = as.Date(Ldate),
+    date    = as.Date(date),
+    date    = if_else(is.na(date), Sys.Date(), date),
+    Liberty = as.numeric(date - Ldate)
+  ) \%>\%
+  dplyr::select(release_len, isrecap, Liberty)
 
-result <- EstimateM(obs = obs2, dout = dout, bins = bins)
+result <- EstimateM(obs = EstM, dout = dout, bins = bins)
 result$M_est
 result$M_ci
 }
