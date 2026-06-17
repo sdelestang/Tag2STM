@@ -66,9 +66,9 @@
 #'
 #' @export
 EstimateM <- function(obs=EstM,
-                      dout=dout,
-                      bins=bins,
-                      M_range = c(0.01, 1.0),
+                      dout,
+                      bins,
+                      M_range = c(0.1, 1.0),
                       plot    = TRUE) {
 
   ## ── 0. Input checks ──────────────────────────────────────────────────────────
@@ -201,7 +201,10 @@ EstimateM <- function(obs=EstM,
          main = "Age at Release Distribution")
 
     # Plot 3: Observed recapture rate by release size decile
-    size_breaks   <- quantile(obs$release_len, probs = seq(0, 1, by = 0.1))
+    size_breaks <- unique(quantile(obs$release_len, probs = seq(0, 1, by = 0.1)))
+    if (length(size_breaks) < 3) size_breaks <- seq(min(obs$release_len),
+                                                    max(obs$release_len),
+                                                    length.out = 11)
     size_class    <- cut(obs$release_len, breaks = size_breaks, include.lowest = TRUE)
     recap_by_size <- tapply(obs$isrecap, size_class, mean, na.rm = TRUE)
     midpoints     <- (size_breaks[-1] + size_breaks[-length(size_breaks)]) / 2
@@ -222,7 +225,8 @@ EstimateM <- function(obs=EstM,
 
     # Plot 4: Observed vs predicted by predicted-probability decile
     p_all       <- pmin(pmax(p_pred, 1e-10), 1 - 1e-10)
-    pred_breaks <- quantile(p_all, probs = seq(0, 1, by = 0.1))
+    pred_breaks <- unique(quantile(p_all, probs = seq(0, 1, by = 0.1)))
+    if (length(pred_breaks) < 3) pred_breaks <- seq(min(p_all), max(p_all), length.out = 11)
     pred_class  <- cut(p_all, breaks = pred_breaks, include.lowest = TRUE)
     obs_bin     <- tapply(obs$isrecap, pred_class, mean, na.rm = TRUE)
     pred_bin    <- tapply(p_all,       pred_class, mean, na.rm = TRUE)
