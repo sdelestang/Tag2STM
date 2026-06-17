@@ -315,25 +315,17 @@ growmod <- function(pin, Like=1) {
     growthmat[ns, ] <- growth_vec
 
     # Build STM using normal distribution of growth
-
     for (fm in 1:nlbin) {
-      growth <- growthmat[ns, fm]
-      sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * growth))
+      mn_growth <- growthmat[ns, fm]
+      sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * mn_growth))
 
       probs <- rep(0, nlbin)
-
-      # Normal probabilities for bins fm to nlbin
-      for (k in fm:nlbin) {
-        if (k < nlbin) {
-          probs[k] <- pnorm(lbinU[k], lbin[fm] + growth, sd_growth) -
-            pnorm(lbinL[k], lbin[fm] + growth, sd_growth)
-        } else {
-          # Ceiling bin still absorbs upper tail
-          probs[k] <- 1 - pnorm(lbinL[k], lbin[fm] + growth, sd_growth)
-        }
+      for (k in fm:(nlbin-1)) {
+        probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
+          pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
       }
+      probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
 
-      # Rescale to sum to 1 (truncated normal)
       stm[fm:nlbin, fm, ns] <- probs[fm:nlbin] / sum(probs[fm:nlbin])
     }
       }
