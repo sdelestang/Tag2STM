@@ -4,7 +4,7 @@
 \alias{ClipSTM}
 \title{Extract Subset of Size Transition Matrix for Stock Assessment}
 \usage{
-ClipSTM(LowLB = 41, UpLB = 151, Gap = 2)
+ClipSTM(LowLB = 41, UpLB = 151, Gap = 2, Annual = FALSE)
 }
 \arguments{
 \item{LowLB}{Numeric. Lower bound of the smallest length bin to include in
