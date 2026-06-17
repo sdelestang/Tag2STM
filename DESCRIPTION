@@ -12,6 +12,7 @@ Depends:
     RTMB, 
     tidyr,
     dplyr,
+    ggplot2,
     magrittr,
     viridis,
     sp,
