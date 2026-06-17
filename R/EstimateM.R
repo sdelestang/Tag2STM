@@ -66,9 +66,9 @@
 #'
 #' @export
 EstimateM <- function(obs=EstM,
-                      dout,
-                      bins,
-                      M_range = c(0.1, 1.0),
+                      dout=dout,
+                      bins=bins,
+                      M_range = c(0.01, 1.0),
                       plot    = TRUE) {
 
   ## ── 0. Input checks ──────────────────────────────────────────────────────────
