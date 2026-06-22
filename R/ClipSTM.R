@@ -169,9 +169,9 @@ ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE, return =  FAL
   if(Annual) {
     stm <- mod$report()$stm[, , goodts]
     dim3 <- dim(stm)[3]
-    if(dim3==2) stm <- stm[,,1] %*% stm[,,2]
-    if(dim3==3) stm <- stm[,,1] %*% stm[,,2] %*% stm[,,3]
-    if(dim3==4) stm <- stm[,,1] %*% stm[,,2] %*% stm[,,3] %*% stm[,,4]
+    if(dim3==2) stm <- stm[,,2] %*% stm[,,1]
+    if(dim3==3) stm <- stm[,,3] %*% stm[,,2] %*% stm[,,1]
+    if(dim3==4) stm <- stm[,,4] %*% stm[,,3] %*% stm[,,2] %*% stm[,,1]
 
     lenout <- matrix(0, ncol = ncol(stm), nrow = 30)
     lenout[1, 1] <- 1
