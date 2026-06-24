@@ -305,20 +305,41 @@ EstimateMBrownie <- function(obs,
 
   ## ── 8. Likelihood profile for M ──────────────────────────────────────────
   message("Computing likelihood profile for M...")
+  # Use 40 points (sufficient for CI) on log scale, log-spaced around MLE
   M_grid   <- exp(seq(log(max(0.005, M_mle * 0.1)),
                       log(min(3.0,   M_mle * 10)),
-                      length.out = 80))
+                      length.out = 40))
   prof_nll <- numeric(length(M_grid))
 
-  for (k in seq_along(M_grid)) {
+  # Warm-start: sweep left from MLE then right, carrying forward F estimates
+  mle_k    <- which.min(abs(M_grid - M_mle))   # closest grid point to MLE
+  lF_warm  <- opt$par[-1]                       # start from MLE F
+
+  # Sweep upward from MLE
+  for (k in mle_k:length(M_grid)) {
     opt_k <- tryCatch(
-      nlminb(opt$par[-1],
+      nlminb(lF_warm,
              function(lF) nll_fn(log(M_grid[k]), lF),
              lower   = rep(log(1e-4), nyears),
              upper   = rep(log(5.0),  nyears),
-             control = list(iter.max=500, eval.max=1000)),
-      error = function(e) list(objective=Inf))
+             control = list(iter.max=200, eval.max=400, rel.tol=1e-6)),
+      error = function(e) list(objective=Inf, par=lF_warm))
     prof_nll[k] <- opt_k$objective
+    if (is.finite(opt_k$objective)) lF_warm <- opt_k$par  # warm-start next step
+  }
+
+  # Sweep downward from MLE
+  lF_warm <- opt$par[-1]
+  for (k in mle_k:1) {
+    opt_k <- tryCatch(
+      nlminb(lF_warm,
+             function(lF) nll_fn(log(M_grid[k]), lF),
+             lower   = rep(log(1e-4), nyears),
+             upper   = rep(log(5.0),  nyears),
+             control = list(iter.max=200, eval.max=400, rel.tol=1e-6)),
+      error = function(e) list(objective=Inf, par=lF_warm))
+    prof_nll[k] <- opt_k$objective
+    if (is.finite(opt_k$objective)) lF_warm <- opt_k$par
   }
 
   chi_thresh <- 1.92
