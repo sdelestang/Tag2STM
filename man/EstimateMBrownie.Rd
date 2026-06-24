@@ -6,140 +6,128 @@
 \usage{
 EstimateMBrownie(
   obs,
-  catch,
-  MLL = 100,
+  MLL = 110,
   tag_loss = 0.05,
   report_rate = 1,
+  sigma_F = 0.5,
+  M_init = 0.1,
+  n_boot = 0,
   plot = TRUE
 )
 }
 \arguments{
 \item{obs}{Data frame of tagged animals containing columns:
 \itemize{
-\item \code{tag} - unique tag identifier
-\item \code{LCl} - carapace length at release (mm)
-\item \code{relyr} - year of release (numeric)
-\item \code{recyr} - year of recapture (numeric, NA if not recaptured)
+\item \code{tag}     - unique tag identifier
+\item \code{LCl}     - carapace length at release (mm)
+\item \code{relyr}   - year of release (numeric)
+\item \code{recyr}   - year of recapture (numeric, NA if not recaptured)
 \item \code{isrecap} - 1 if recaptured, 0 if not
 }
 Multiple recaptures of the same tag are treated as independent events.}
 
-\item{catch}{Data frame of annual commercial catch containing columns:
-\itemize{
-\item \code{Year} - fishing year (numeric)
-\item \code{Catch} - total catch in weight (kg or tonnes, consistent units)
-}
-Used to derive relative annual fishing mortality. Absolute scale does not
-matter as only relative year-to-year patterns are used.}
-
 \item{MLL}{Numeric. Minimum legal length (mm). Only animals with
-\code{LCl >= MLL} at release are included in the analysis. Smaller animals
-are silently dropped. Default is 100 mm.}
+LCl >= MLL at release are included. Default 110 mm.}
 
-\item{tag_loss}{Numeric between 0 and 1. Annual tag loss rate, assumed known
-from double-tagging experiments. Applied as a fixed correction to survival
-each year. Default is 0.05 (5\% per year).}
+\item{tag_loss}{Numeric matrix or scalar. Annual tag loss rate(s).
+If scalar, applied uniformly. If a matrix with rows = release cohorts
+and cols = recapture years, allows tag loss to vary by cohort and time.
+Fixed from double-tagging experiments. Default 0.05.}
 
-\item{report_rate}{Numeric between 0 and 1. Probability that a recaptured
-animal is reported. Assumed constant across years. Cannot be estimated
-separately from F without additional data; fix at 1 unless information
-is available. Default is 1.}
+\item{report_rate}{Numeric vector or scalar. Reporting rate by recapture
+year (phi in Brownie formulation). If scalar, applied uniformly across
+years. Default 1.}
 
-\item{plot}{Logical. If TRUE (default), produces diagnostic plots including
-the likelihood profile for M, observed vs predicted recovery rates by year,
-and residuals by release year.}
+\item{sigma_F}{Numeric. SD of random-walk penalty on log(F) between
+consecutive years. Controls smoothness of F trajectory.
+Lower = smoother F (more signal attributed to M).
+Higher = F varies more freely.
+Set to Inf to remove the penalty entirely. Default 0.5.}
+
+\item{M_init}{Numeric. Starting value for M in optimisation. Default 0.1.}
+
+\item{n_boot}{Integer. Number of bootstrap resamples for uncertainty.
+Set to 0 to skip bootstrapping and use likelihood profiling only.
+Default 0.}
+
+\item{plot}{Logical. Produce diagnostic plots. Default TRUE.}
 }
 \value{
-A list containing:
+Invisibly returns a list with:
 \itemize{
-\item \code{M} - MLE estimate of natural mortality
-\item \code{M_lo95} - lower 95\\% profile confidence interval for M
-\item \code{M_hi95} - upper 95\\% profile confidence interval for M
-\item \code{F_base} - estimated average fishing mortality
-\item \code{F_yr} - named vector of annual fishing mortality estimates
-\item \code{Z_yr} - named vector of annual total mortality (M + F_yr)
-\item \code{nll} - negative log-likelihood at MLE
-\item \code{n_legal} - number of animals included (released >= MLL)
-\item \code{n_recap} - number of recapture events used
-\item \code{pred_recap} - data frame of predicted vs observed recovery
-rates by release year and years at liberty
-\item \code{profile} - data frame of M values and profile NLL for plotting
+\item \code{M}         - MLE of natural mortality (annual rate)
+\item \code{M_lo95}    - lower 95\\% profile CI
+\item \code{M_hi95}    - upper 95\\% profile CI
+\item \code{M_boot}    - bootstrap distribution of M (if n_boot > 0)
+\item \code{F_yr}      - named vector of annual F estimates
+\item \code{Z_yr}      - named vector of annual Z = M + F
+\item \code{nll}       - NLL at MLE
+\item \code{n_legal}   - animals included
+\item \code{n_recap}   - recapture events
+\item \code{obs_mat}   - observed recovery matrix (cohort x year + nsa)
+\item \code{pred_mat}  - predicted recovery matrix
+\item \code{profile}   - likelihood profile data frame
 }
 }
 \description{
 Estimates natural mortality (M) from tag-recapture data using a Brownie
-dead-recovery model. Animals are tracked through time with year-specific
-fishing mortality derived from relative catch rates. Only animals released
-at or above the minimum legal length are used, ensuring constant gear
-selectivity. Likelihood profiling is used to derive confidence intervals
-for M.
+dead-recovery model. Follows a matrix-based formulation where rows are
+release cohorts (by year) and columns are recapture years, with a final
+'nsa' (not seen again) column. Year-specific fishing mortality is estimated
+directly from the recovery pattern — no catch or effort data required.
+Multiple release cohorts sharing the same F in a given year provide the
+cross-cohort signal that identifies M.
 }
 \details{
-\strong{Model Structure:}
+\strong{Likelihood (following Brownie et al. 1985):}
 
-For each legal-sized tagged animal \eqn{i} released in year \eqn{r}:
+For release cohort r recaptured in year t:
+\deqn{p_{r,t} = \phi_t \cdot \lambda_{r,t} \cdot u(F_t) \cdot
+  \exp\left(-\sum_{s=r}^{t-1} F_s - (t-r) \cdot M\right)}
 
-Annual total mortality: \eqn{Z_t = M + F_t}
+where \eqn{u(F) = \frac{F}{F+M}(1-e^{-(F+M)})} is the probability of
+dying from fishing, \eqn{\phi_t} is reporting rate, and
+\eqn{\lambda_{r,t}} is tag retention probability.
 
-where \eqn{F_t = F_{base} \times C_t / \bar{C}} and \eqn{C_t} is catch in year \eqn{t}.
-
-Effective annual survival (accounting for tag loss):
-\deqn{S_t = \exp(-Z_t) \times (1 - \delta)}
-where \eqn{\delta} is the annual tag loss rate.
-
-Probability of first recapture in year \eqn{t} (years at liberty = \eqn{t - r}):
-\deqn{p_{recap,t} = \frac{F_t}{Z_t}(1 - \exp(-Z_t)) \times \rho \times \prod_{s=r}^{t-1} S_s}
-where \eqn{\rho} is the reporting rate.
-
-Probability of never being recaptured:
-\deqn{p_{never} = \prod_{t=r}^{T} (1 - p_{recap,t} / S_{cumul,t-1})}
+Probability of not being seen again:
+\deqn{p_{r,nsa} = 1 - \sum_{t \geq r} p_{r,t}}
 
 Log-likelihood:
-\deqn{\ell = \sum_{recaptured} \log(p_{recap,t}) + \sum_{not recaptured} \log(p_{never})}
+\deqn{\ell = \sum_{r,t} n_{r,t} \log(p_{r,t}) +
+             \sum_r n_{r,nsa} \log(p_{r,nsa})}
 
-\strong{Multiple recaptures:} Each recapture event for a given tag is treated as
-an independent observation. This is conservative (slightly inflates effective
-sample size) but avoids the complexity of conditioning on previous recaptures.
-
-\strong{Identifiability:} M and F_base are identified from the temporal pattern
-of recaptures — specifically from the ratio of early to late recoveries.
-Years with high catch give high F_rel, accelerating the decline in recapture
-probability, which separates M from F. At least 3-4 years of recapture data
-and meaningful year-to-year variation in catch are needed for reliable
-separation.
-
-\strong{Profile CI:} The 95\\% confidence interval is computed by profiling the
-likelihood over a grid of M values, with F_base re-optimised at each M.
-The CI boundary is where the profile NLL exceeds the MLE NLL by
-\eqn{\chi^2_{1,0.95}/2 = 1.92}.
+\strong{Identification of M:} In any year t, cohorts r1 < r2 both contribute
+recaptures. They share F_t but differ in cumulative survival. The ratio
+of their expected recovery rates is:
+\deqn{\frac{p_{r1,t}}{p_{r2,t}} = \exp\left(-\sum_{s=r1}^{r2-1}(F_s+M)\right)}
+which pins down M once F is accounted for.
 }
 \examples{
 \dontrun{
-# Basic usage
-result <- EstimateMBrownie(obs, catch, MLL = 100, tag_loss = 0.05)
-cat("M estimate:", result$M, "(", result$M_lo95, "-", result$M_hi95, ")\n")
+result <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05)
+cat("M:", result$M, "(", result$M_lo95, "-", result$M_hi95, ")\n")
+
+# Sensitivity to sigma_F
+lapply(c(0.2, 0.5, 1.0, Inf), function(sf) {
+  r <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05, sigma_F=sf, plot=FALSE)
+  data.frame(sigma_F=sf, M=round(r$M,3), lo=round(r$M_lo95,3),
+             hi=round(r$M_hi95,3))
+}) |> do.call(what=rbind)
 
 # Sensitivity to tag loss
-sens_tl <- lapply(c(0, 0.05, 0.10, 0.15), function(tl) {
-  r <- EstimateMBrownie(obs, catch, MLL = 100, tag_loss = tl, plot = FALSE)
-  data.frame(tag_loss = tl, M = r$M, lo = r$M_lo95, hi = r$M_hi95)
-})
-do.call(rbind, sens_tl)
-
-# Sensitivity to MLL
-sens_mll <- lapply(c(90, 95, 100, 105, 110), function(mll) {
-  r <- EstimateMBrownie(obs, catch, MLL = mll, tag_loss = 0.05, plot = FALSE)
-  data.frame(MLL = mll, n = r$n_legal, M = r$M, lo = r$M_lo95, hi = r$M_hi95)
-})
-do.call(rbind, sens_mll)
+lapply(c(0, 0.05, 0.10, 0.20), function(tl) {
+  r <- EstimateMBrownie(obs, MLL=110, tag_loss=tl, plot=FALSE)
+  data.frame(tag_loss=tl, M=round(r$M,3), lo=round(r$M_lo95,3),
+             hi=round(r$M_hi95,3))
+}) |> do.call(what=rbind)
 
 # Sensitivity to reporting rate
-sens_rr <- lapply(c(0.7, 0.8, 0.9, 1.0), function(rr) {
-  r <- EstimateMBrownie(obs, catch, MLL = 100, tag_loss = 0.05,
-                        report_rate = rr, plot = FALSE)
-  data.frame(report_rate = rr, M = r$M, lo = r$M_lo95, hi = r$M_hi95)
-})
-do.call(rbind, sens_rr)
+lapply(c(0.7, 0.8, 0.9, 1.0), function(rr) {
+  r <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05, report_rate=rr,
+                        plot=FALSE)
+  data.frame(report_rate=rr, M=round(r$M,3), lo=round(r$M_lo95,3),
+             hi=round(r$M_hi95,3))
+}) |> do.call(what=rbind)
 }
 
 }
