@@ -3,6 +3,7 @@
 export(ClipSTM)
 export(EstimateM)
 export(EstimateMBrownie)
+export(EstimateTagLoss)
 export(MakeLbin)
 export(MakeTsteps)
 export(Makemap)
