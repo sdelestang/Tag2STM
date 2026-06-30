@@ -12,7 +12,8 @@ EstimateMBrownie(
   sigma_F = 0.5,
   M_init = 0.1,
   n_boot = 0,
-  plot = TRUE
+  plot = TRUE,
+  profile_M = TRUE
 )
 }
 \arguments{
@@ -46,27 +47,39 @@ Set to Inf to remove the penalty entirely. Default 0.5.}
 
 \item{M_init}{Numeric. Starting value for M in optimisation. Default 0.1.}
 
-\item{n_boot}{Integer. Number of bootstrap resamples for uncertainty.
+\item{n_boot}{Integer. Number of bootstrap resamples for M uncertainty.
 Set to 0 to skip bootstrapping and use likelihood profiling only.
 Default 0.}
 
 \item{plot}{Logical. Produce diagnostic plots. Default TRUE.}
+
+\item{profile_M}{Logical. Compute likelihood profile CI for M? This is the
+slowest part of the function (40 inner optimisations). Set to FALSE when
+calling inside a sensitivity loop (e.g. \code{\link{SensitivityTagLoss}})
+where only the MLE and delta-method F uncertainty are needed. Default TRUE.}
 }
 \value{
 Invisibly returns a list with:
 \itemize{
-\item \code{M}         - MLE of natural mortality (annual rate)
-\item \code{M_lo95}    - lower 95\\% profile CI
-\item \code{M_hi95}    - upper 95\\% profile CI
-\item \code{M_boot}    - bootstrap distribution of M (if n_boot > 0)
-\item \code{F_yr}      - named vector of annual F estimates
-\item \code{Z_yr}      - named vector of annual Z = M + F
-\item \code{nll}       - NLL at MLE
-\item \code{n_legal}   - animals included
-\item \code{n_recap}   - recapture events
-\item \code{obs_mat}   - observed recovery matrix (cohort x year + nsa)
-\item \code{pred_mat}  - predicted recovery matrix
-\item \code{profile}   - likelihood profile data frame
+\item \code{M}           - MLE of natural mortality (annual rate)
+\item \code{M_lo95}      - lower 95\\% profile CI for M
+\item \code{M_hi95}      - upper 95\\% profile CI for M
+\item \code{M_boot}      - bootstrap distribution of M (if n_boot > 0)
+\item \code{F_yr}        - named vector of annual F estimates
+\item \code{F_lo95}      - named vector of lower 95\\% delta-method CI for F
+\item \code{F_hi95}      - named vector of upper 95\\% delta-method CI for F
+\item \code{F_cv}        - named vector of CV for each annual F estimate
+\item \code{meanF}       - arithmetic mean of annual F estimates
+\item \code{meanF_lo95}  - lower 95\\% delta-method CI for mean F
+\item \code{meanF_hi95}  - upper 95\\% delta-method CI for mean F
+\item \code{meanF_cv}    - CV of mean F estimate
+\item \code{Z_yr}        - named vector of annual Z = M + F
+\item \code{nll}         - NLL at MLE
+\item \code{n_legal}     - number of animals included (LCl >= MLL)
+\item \code{n_recap}     - number of recapture events
+\item \code{obs_mat}     - observed recovery matrix (cohort x year + nsa)
+\item \code{pred_mat}    - predicted recovery matrix (expected counts)
+\item \code{profile}     - likelihood profile data frame for M
 }
 }
 \description{
@@ -76,7 +89,8 @@ release cohorts (by year) and columns are recapture years, with a final
 'nsa' (not seen again) column. Year-specific fishing mortality is estimated
 directly from the recovery pattern — no catch or effort data required.
 Multiple release cohorts sharing the same F in a given year provide the
-cross-cohort signal that identifies M.
+cross-cohort signal that identifies M. Delta-method uncertainty is computed
+for all F quantities from the joint Hessian at the MLE.
 }
 \details{
 \strong{Likelihood (following Brownie et al. 1985):}
@@ -101,33 +115,62 @@ recaptures. They share F_t but differ in cumulative survival. The ratio
 of their expected recovery rates is:
 \deqn{\frac{p_{r1,t}}{p_{r2,t}} = \exp\left(-\sum_{s=r1}^{r2-1}(F_s+M)\right)}
 which pins down M once F is accounted for.
+
+\strong{F uncertainty (delta method):} The Hessian of the joint NLL with respect
+to \eqn{(\log M, \log F_1, \ldots, \log F_T)} is computed via
+\code{optimHess()} at the MLE and inverted to give the parameter covariance
+matrix. Per-year 95\\% CIs are \eqn{F_t \exp(\pm 1.96\, \widehat{SE}_{\log F_t})},
+which are asymmetric and always positive. The CV on the natural scale is
+\eqn{\sqrt{\exp(\widehat{SE}^2_{\log F_t}) - 1}}. Mean F uncertainty is
+propagated via the gradient \eqn{g_t = F_t / T} applied to the log-F
+covariance submatrix, then log-transformed for the CI.
+Note that because the Hessian includes the \code{sigma_F} random-walk
+penalty, the F CIs reflect both data information and the smoothness prior.
 }
 \examples{
 \dontrun{
-result <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05)
+result <- EstimateMBrownie(obs, MLL = 110, tag_loss = 0.05)
 cat("M:", result$M, "(", result$M_lo95, "-", result$M_hi95, ")\n")
+cat("Mean F:", result$meanF, "(", result$meanF_lo95, "-", result$meanF_hi95,
+    ")  CV =", round(result$meanF_cv, 3), "\n")
+
+# Access per-year F table
+data.frame(year  = as.integer(names(result$F_yr)),
+           F     = round(result$F_yr,   3),
+           lo95  = round(result$F_lo95, 3),
+           hi95  = round(result$F_hi95, 3),
+           cv    = round(result$F_cv,   3))
 
 # Sensitivity to sigma_F
 lapply(c(0.2, 0.5, 1.0, Inf), function(sf) {
-  r <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05, sigma_F=sf, plot=FALSE)
-  data.frame(sigma_F=sf, M=round(r$M,3), lo=round(r$M_lo95,3),
-             hi=round(r$M_hi95,3))
-}) |> do.call(what=rbind)
+  r <- EstimateMBrownie(obs, MLL = 110, tag_loss = 0.05, sigma_F = sf,
+                        plot = FALSE)
+  data.frame(sigma_F = sf, M = round(r$M, 3),
+             M_lo = round(r$M_lo95, 3), M_hi = round(r$M_hi95, 3),
+             meanF = round(r$meanF, 3),
+             meanF_lo = round(r$meanF_lo95, 3),
+             meanF_hi = round(r$meanF_hi95, 3))
+}) |> do.call(what = rbind)
 
 # Sensitivity to tag loss
 lapply(c(0, 0.05, 0.10, 0.20), function(tl) {
-  r <- EstimateMBrownie(obs, MLL=110, tag_loss=tl, plot=FALSE)
-  data.frame(tag_loss=tl, M=round(r$M,3), lo=round(r$M_lo95,3),
-             hi=round(r$M_hi95,3))
-}) |> do.call(what=rbind)
+  r <- EstimateMBrownie(obs, MLL = 110, tag_loss = tl, plot = FALSE)
+  data.frame(tag_loss = tl, M = round(r$M, 3),
+             lo = round(r$M_lo95, 3), hi = round(r$M_hi95, 3))
+}) |> do.call(what = rbind)
 
 # Sensitivity to reporting rate
 lapply(c(0.7, 0.8, 0.9, 1.0), function(rr) {
-  r <- EstimateMBrownie(obs, MLL=110, tag_loss=0.05, report_rate=rr,
-                        plot=FALSE)
-  data.frame(report_rate=rr, M=round(r$M,3), lo=round(r$M_lo95,3),
-             hi=round(r$M_hi95,3))
-}) |> do.call(what=rbind)
+  r <- EstimateMBrownie(obs, MLL = 110, tag_loss = 0.05, report_rate = rr,
+                        plot = FALSE)
+  data.frame(report_rate = rr, M = round(r$M, 3),
+             lo = round(r$M_lo95, 3), hi = round(r$M_hi95, 3))
+}) |> do.call(what = rbind)
 }
 
+}
+\references{
+Brownie, C., Anderson, D.R., Burnham, K.P. & Robson, D.S. (1985).
+\emph{Statistical Inference from Band Recovery Data: A Handbook}, 2nd ed.
+US Fish and Wildlife Service Resource Publication 156.
 }
