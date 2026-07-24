@@ -83,7 +83,8 @@ plotfit <- function(datIn = tdat) {
   pa <- ggplot(obs, aes(x = Rlcl, y = res, colour = midyr)) +
     geom_point(size = 2, alpha = 0.7) +
     geom_hline(yintercept = 0, linetype = "dashed") +
-    scale_colour_viridis_c(option = "viridis", name = "Mid-year") +
+    scale_colour_viridis_c(option = "viridis", name = "Mid-year",
+                           guide = guide_colourbar(barwidth = unit(5, "cm"), barheight = unit(0.4, "cm"))) +
     labs(x = "Release size", y = "Residual", tag = "a") +
     theme_bw() +
     theme(legend.position = "none", plot.tag = element_text(face = "bold"))
@@ -91,7 +92,8 @@ plotfit <- function(datIn = tdat) {
   pb <- ggplot(obs, aes(x = log(ntstep + 1), y = res, colour = midyr)) +
     geom_point(size = 2, alpha = 0.7) +
     geom_hline(yintercept = 0, linetype = "dashed") +
-    scale_colour_viridis_c(option = "viridis", name = "Mid-year") +
+    scale_colour_viridis_c(option = "viridis", name = "Mid-year",
+                           guide = guide_colourbar(barwidth = unit(5, "cm"), barheight = unit(0.4, "cm"))) +
     labs(x = "Liberty (log number timesteps)", y = "Residual", tag = "b") +
     theme_bw() +
     theme(legend.position = "none", plot.tag = element_text(face = "bold"))

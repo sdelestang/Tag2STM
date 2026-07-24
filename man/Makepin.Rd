@@ -9,7 +9,8 @@ Makepin(
   LsigError = log(2),
   LsigGrow = c(log(1.8), -1.5),
   LMerrorRelsigma = 0,
-  LMerrorRecsigma = 0
+  LMerrorRecsigma = 0,
+  TempGrowth = FALSE
 )
 }
 \arguments{
@@ -37,6 +38,16 @@ A value of 0 indicates no individual-level variation beyond the baseline
 random effects on measurement error at recapture. When non-zero, each recapture
 gets its own measurement error drawn from N(0, exp(LMerrorRecsigma)).
 A value of 0 indicates no individual-level variation. Default is 0.}
+
+\item{TempGrowth}{Logical. If \code{TRUE}, initializes the additional \code{Sraw}
+parameter vector needed for year-specific proportional growth scaling (see
+\code{\link{growmodvar}}), and marks the returned \code{pin} so that downstream
+functions (e.g. \code{make_growmod_obj}) know to fit \code{growmodvar} instead
+of \code{growmod}. \code{Sraw} is sized from the number of years with adequate
+recapture support, \code{sum(datain$yr_supported) - 1} — NOT from raw
+\code{nyears} — so \code{datain <- add_year_support(datain)} must be run
+first (see \code{\link{add_year_support}}); \code{Makepin} errors otherwise.
+Default is \code{FALSE}, i.e. the standard no-interannual-variation model.}
 }
 \value{
 A named list containing initial parameter values for model fitting:
@@ -60,6 +71,14 @@ effects for recapture measurement error, one per recapture event. Initialized
 to 0 and estimated during model fitting if \code{LMerrorRecsigma > 0}.}
 \item{LMerrorRecsigma}{Scalar. Log standard deviation governing the distribution
 of \code{MerrorRec}.}
+\item{Sraw}{Only present when \code{TempGrowth = TRUE}. Numeric vector of length
+\code{sum(datain$yr_supported) - 1} (see \code{\link{add_year_support}}),
+initialized to all zeros (average growth, no year effects). Inside
+\code{growmodvar}, these values are placed into the \emph{supported} year
+slots of the full \code{nyears}-length year-effect vector \code{S} as
+\code{c(Sraw, -sum(Sraw))}, enforcing a sum-to-zero constraint among
+supported years only; unsupported years are fixed at exactly \code{S = 0}
+(average growth) rather than participating in that constraint.}
 }
 }
 \description{
@@ -71,7 +90,10 @@ measurement error components.
 \details{
 This function requires that \code{lbin}, \code{ntsteps}, and \code{tdat}
 exist in the calling environment (typically loaded as package data or defined
-in the global environment before model fitting).
+in the global environment before model fitting). When \code{TempGrowth = TRUE},
+\code{tdat} must additionally include \code{relyr} and \code{recyr} columns
+(release and recapture year for each tagged animal) so that \code{nyears} can
+be derived.
 
 \strong{Growth Model Structure:}
 The \code{growth_vecpar} parameters use a random walk structure where:
@@ -93,13 +115,25 @@ systematic differences between taggers, measuring instruments, or individual
 animal characteristics
 }
 
+\strong{Interannual Growth Variation (\code{TempGrowth}):}
+When enabled, \code{Sraw} adds year-specific proportional scaling of the mean
+growth increment (and, coupled through the existing \code{LsigGrow} rate
+function, the growth variance) at every length bin and season. See
+\code{\link{growmodvar}} for the full model. The \code{TempGrowth} flag itself
+is not part of the numeric parameter list passed to \code{MakeADFun} — it is
+stored as an attribute on the returned \code{pin} object
+(\code{attr(pin, "TempGrowth")}) so that downstream functions such as
+\code{make_growmod_obj} can detect it and dispatch to \code{growmodvar} instead
+of \code{growmod}, without it being treated as an estimable parameter.
+
 \strong{Parameter Scale:}
 All parameters involving standard deviations are on the log scale to ensure
 positivity during unconstrained optimization and to improve numerical stability.
 }
 \section{Model Components}{
 
-The pin file feeds into \code{growmod()}, which:
+The pin file feeds into \code{growmod()} (or \code{growmodvar()} when
+\code{TempGrowth = TRUE}), which:
 \enumerate{
 \item Builds size transition matrices (STMs) from growth parameters
 \item Projects each tagged animal forward through time using STMs
@@ -129,6 +163,10 @@ pin_random <- Makepin(
   LMerrorRecsigma = log(0.5)   # 0.5mm SD between individuals at recapture
 )
 
+# Create pin file for the year-specific growth scaling model
+# (requires tdat$relyr and tdat$recyr to be present)
+pin_var <- Makepin(TempGrowth = TRUE)
+
 # Fit the model
 obj <- MakeADFun(growmod, pin_default, random = c("MerrorRel", "MerrorRec"))
 opt <- nlminb(obj$par, obj$fn, obj$gr)
@@ -137,4 +175,6 @@ opt <- nlminb(obj$par, obj$fn, obj$gr)
 }
 \seealso{
 \code{\link{growmod}} for the main model function that uses this pin file
+when \code{TempGrowth = FALSE}; \code{\link{growmodvar}} for the model used
+when \code{TempGrowth = TRUE}
 }

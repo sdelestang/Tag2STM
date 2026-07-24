@@ -4,16 +4,28 @@
 \alias{Makemap}
 \title{Create Parameter Mapping for Selective Time Step Fitting}
 \usage{
-Makemap(pin, re = FALSE)
+Makemap(pin, re = FALSE, estTempGrowth = TRUE)
 }
 \arguments{
 \item{pin}{List. A pin file created by \code{\link{Makepin}} containing initial
-parameter values and structure.}
+parameter values and structure. If \code{pin} was created with
+\code{TempGrowth = TRUE}, it will contain an additional \code{Sraw} element,
+which this function detects automatically and maps separately from
+\code{growth_vecpar} (see Details).}
 
 \item{re}{Logical. Should individual-level measurement error random effects
 (\code{MerrorRel} and \code{MerrorRec}) be estimated? If \code{FALSE} (default),
 these parameters are fixed at their initial values (typically 0). If \code{TRUE},
 they are removed from the map and estimated as random effects. Default is \code{FALSE}.}
+
+\item{estTempGrowth}{Logical. Only relevant when \code{pin} contains \code{Sraw}
+(i.e. was built with \code{Makepin(TempGrowth = TRUE)}). If \code{TRUE} (default),
+\code{Sraw} is left out of the map and estimated as ordinary fixed effects,
+one parameter per element. If \code{FALSE}, all \code{Sraw} elements are fixed
+at their initial value (0), which collapses \code{growmodvar} back to
+average-year-only growth — useful for a baseline fit or a likelihood-ratio
+comparison against the year-effect model. Ignored (with no error) when
+\code{pin} has no \code{Sraw} element.}
 }
 \value{
 A named list suitable for the \code{map} argument in \code{MakeADFun()}.
@@ -36,6 +48,12 @@ to estimate if needed.}
 map to estimate if needed.}
 \item{LMerrorRecsigma}{Single \code{factor(NA)} - FIXED at initial value. Modify
 map to estimate if needed.}
+\item{Sraw}{Only present in the returned map (as \code{factor(NA)} for every
+element) when \code{pin} contains \code{Sraw} AND \code{estTempGrowth = FALSE}.
+When \code{pin} contains \code{Sraw} and \code{estTempGrowth = TRUE} (default),
+\code{Sraw} is deliberately left out of the map so every element is estimated
+independently by \code{MakeADFun()}'s default behaviour. When \code{pin} has
+no \code{Sraw} element at all, this list has no \code{Sraw} entry either way.}
 }
 }
 \description{
@@ -43,7 +61,7 @@ Generates a mapping list that controls which parameters are estimated in the
 tag-recapture growth model. This allows growth parameters to be selectively
 turned on or off based on which time steps have sufficient data (defined in
 \code{goodts}), while controlling whether measurement error random effects
-are estimated.
+— and, when present, year-specific growth scaling (\code{Sraw}) — are estimated.
 }
 \details{
 \strong{TMB Mapping Convention:}
@@ -74,6 +92,16 @@ The function creates a factor vector for \code{growth_vecpar} where:
 \item Time steps NOT in \code{goodts} receive \code{NA} = FIXED at initial values
 \item This pattern repeats for all \code{ntsteps} time periods
 }
+
+\strong{Why \code{Sraw} is excluded from the time-step mapping:}
+The \code{turnon} factor vector built for \code{growth_vecpar} has length
+\code{ntsteps * nlbin} and encodes which length-bin/season combinations have
+data. \code{Sraw} is a completely different parameter — length
+\code{nyears - 1}, indexed by year, not by length bin or season — so applying
+the same \code{turnon} vector to it would silently produce a length mismatch
+(or, worse, a coincidental length match with the wrong meaning). \code{Sraw}
+is therefore identified by name and excluded from the \code{pnames} sweep that
+applies \code{turnon}, and handled explicitly afterward via \code{estTempGrowth}.
 
 \strong{Random Effects Control:}
 When \code{re = FALSE} (default):
@@ -155,10 +183,22 @@ pin <- Makepin()
 map <- Makemap(pin, re = FALSE)
 table(map$growth_vecpar, useNA = "ifany")  # See which parameters are estimated
 # NA = fixed, integers = estimated
+
+# Example 6: Year-specific growth scaling (growmodvar) — estimate Sraw
+pin <- Makepin(TempGrowth = TRUE)
+map <- Makemap(pin, re = FALSE)  # Sraw estimated by default (estTempGrowth = TRUE)
+obj <- MakeADFun(growmodvar, pin, map = map)
+
+# Example 7: Baseline comparison — fit growmodvar with year effects fixed off
+pin <- Makepin(TempGrowth = TRUE)
+map <- Makemap(pin, re = FALSE, estTempGrowth = FALSE)  # Sraw fixed at 0
+obj_baseline <- MakeADFun(growmodvar, pin, map = map)
 }
 
 }
 \seealso{
 \code{\link{Makepin}} for creating the initial parameter list
-\code{\link{growmod}} for the model function
+\code{\link{growmod}} for the standard model function
+\code{\link{growmodvar}} for the year-specific growth scaling model that
+uses the \code{Sraw} mapping described here
 }
