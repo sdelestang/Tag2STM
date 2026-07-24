@@ -36,12 +36,11 @@ cntTsteps <- function(x) {
   nyrs <- x[2] - x[1]
   spos <- match(paste(x[3], x[4]), times$id)
   epos <- match(paste(x[5], x[6]), times$id)
-  if(nyrs == 0) Tfrac <- sum(times$tfrac[spos:epos])
-  if(nyrs > 0) {
-    Tfrac <- sum(times$tfrac[spos:nrow(times)]) +
-      ((nyrs - 1) * sum(times$tfrac[1:nrow(times)])) +
-      sum(times$tfrac[1:epos])
+  if (nyrs == 0)
+    Tfrac <- sum(times$tfrac[spos:epos])
+  if (nyrs > 0) {
+    Tfrac <- sum(times$tfrac[spos:nrow(times)]) + ((nyrs - 1) * sum(times$tfrac[1:nrow(times)])) + sum(times$tfrac[1:epos])
   }
-  Tfrac <- round(Tfrac, 0)
+  Tfrac <- floor(Tfrac + 0.5)   # round-half-up: consistent >0.5-year threshold at every boundary
   return(Tfrac)
 }
