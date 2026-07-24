@@ -14,7 +14,13 @@
 #' @param re Logical. Should individual-level measurement error random effects
 #'   (\code{MerrorRel} and \code{MerrorRec}) be estimated? If \code{FALSE} (default),
 #'   these parameters are fixed at their initial values (typically 0). If \code{TRUE},
-#'   they are removed from the map and estimated as random effects. Default is \code{FALSE}.
+#'   they are removed from the map and estimated as random effects, AND
+#'   \code{LMerrorRelsigma}/\code{LMerrorRecsigma} (the SD they are drawn
+#'   from) are also freed to be estimated -- fixing that SD while letting
+#'   the individual values vary would cap how much they're allowed to move
+#'   at an arbitrary default, defeating the point of \code{re = TRUE}.
+#'   \code{LsigError} is NOT coupled to \code{re} and stays fixed regardless
+#'   (see Details for why). Default is \code{FALSE}.
 #' @param estTemporalGrowth Logical. Only relevant when \code{pin} contains \code{Sraw}
 #'   (i.e. was built with \code{Makepin(TemporalGrowth = TRUE)}). If \code{TRUE} (default),
 #'   \code{Sraw} is left out of the map and estimated as ordinary fixed effects,
@@ -110,19 +116,21 @@
 #' }
 #'
 #' **Sigma Parameters:**
-#' By default, \code{LsigError}, \code{LMerrorRelsigma}, and \code{LMerrorRecsigma}
-#' are FIXED at their initial values. This is appropriate when:
-#' \itemize{
-#'   \item You want to use expert-specified measurement error values
-#'   \item You're conducting sensitivity analyses with different fixed error levels
-#'   \item The model has difficulty estimating these simultaneously with other parameters
-#' }
+#' \code{LsigError} is ALWAYS fixed at its initial value, regardless of
+#' \code{re} -- see Details above for why (freeing it collapses the growth
+#' curve, since a single release/recapture measurement pair per animal can't
+#' separate measurement noise from real growth). \code{LMerrorRelsigma} and
+#' \code{LMerrorRecsigma} are coupled to \code{re}: fixed when \code{re =
+#' FALSE} (consistent with \code{MerrorRel}/\code{MerrorRec} themselves being
+#' fixed at 0 then, so their SD has nothing to act on anyway), and left free
+#' to estimate automatically when \code{re = TRUE} -- no manual
+#' \code{map$LMerrorRelsigma <- NULL} step needed.
 #'
-#' To estimate these parameters, remove them from the map before calling \code{MakeADFun()}:
+#' To estimate \code{LsigError} anyway (not recommended given the collapse
+#' risk above, but available for sensitivity analysis), remove it from the
+#' map explicitly before calling \code{MakeADFun()}:
 #' \preformatted{
 #' map$LsigError <- NULL
-#' map$LMerrorRelsigma <- NULL
-#' map$LMerrorRecsigma <- NULL
 #' }
 #'
 #' @section Required Environment Variables:
@@ -137,22 +145,21 @@
 #' \dontrun{
 #' # Assuming datain with goodts defined and pin created:
 #'
-#' # Example 1: Basic model with fixed sigma, no random effects
+#' # Example 1: Basic model, LsigError fixed, no random effects
 #' pin <- Makepin()
 #' map <- Makemap(pin, re = FALSE)
 #' obj <- MakeADFun(growmod, pin, map = map)
 #'
-#' # Example 2: Estimate measurement error sigma
+#' # Example 2: Estimate LsigError anyway (not recommended, see Details)
 #' pin <- Makepin()
 #' map <- Makemap(pin, re = FALSE)
 #' map$LsigError <- NULL  # Remove from map to estimate
 #' obj <- MakeADFun(growmod, pin, map = map)
 #'
-#' # Example 3: Model with individual measurement error random effects
+#' # Example 3: Individual measurement error random effects -- re = TRUE
+#' # frees MerrorRel/MerrorRec AND their sigmas automatically, no extra step
 #' pin <- Makepin(LMerrorRelsigma = log(0.5), LMerrorRecsigma = log(0.5))
 #' map <- Makemap(pin, re = TRUE)
-#' map$LMerrorRelsigma <- NULL  # Estimate the sigma for random effects
-#' map$LMerrorRecsigma <- NULL
 #' obj <- MakeADFun(
 #'   growmod,
 #'   pin,
@@ -219,10 +226,32 @@ Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE) {
     # If re == TRUE, MerrorRel/Rec are NOT added to map, so they'll be estimated
   }
 
-  # Fix sigma parameters at initial values (remove from map to estimate)
+  # Fix LsigError at its initial value UNCONDITIONALLY, regardless of re.
+  # Freeing LsigError specifically (even alongside re = TRUE) was found to
+  # collapse the growth curve toward flat: with typically one release and one
+  # recapture measurement per animal, the model can't distinguish "this
+  # animal really grew" from "both measurements were just noisy", so a free
+  # LsigError can explain away genuine growth signal as measurement error.
   map$LsigError <- factor(NA)
-  map$LMerrorRelsigma <- factor(NA)
-  map$LMerrorRecsigma <- factor(NA)
+
+  # LMerrorRelsigma/LMerrorRecsigma (the SD that MerrorRel/MerrorRec are drawn
+  # from), by contrast, ARE coupled to re: fixing them while re = TRUE frees
+  # the individual MerrorRel/MerrorRec values is self-defeating -- it caps
+  # how much individual variation is allowed to matter at a fixed default
+  # (exp(0) = 1mm) regardless of what the data actually supports, which
+  # silently neutered re = TRUE in practice (individual REs converged to
+  # exactly their initial value, never having had room to move). If
+  # re == TRUE, leave these two out of map so they estimate; if re == FALSE,
+  # fix them (matches the original unconditional-fix behaviour, and is
+  # harmless either way since MerrorRel/MerrorRec are themselves fixed at 0
+  # when re == FALSE, so their sigma has nothing to act on regardless).
+  if (re == FALSE) {
+    map$LMerrorRelsigma <- factor(NA)
+    map$LMerrorRecsigma <- factor(NA)
+  }
+  # If re == TRUE, LMerrorRelsigma/LMerrorRecsigma are NOT added to map, so
+  # they estimate automatically -- no manual `map$LMerrorRelsigma <- NULL`
+  # needed anymore.
 
   # Handle year-specific growth scaling (Sraw), only present when pin was
   # built via Makepin(TemporalGrowth = TRUE)
