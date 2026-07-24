@@ -2,17 +2,17 @@
 % Please edit documentation in R/Make_Growth.R
 \name{make_growmod_obj}
 \alias{make_growmod_obj}
-\title{Create RTMB objective from growmod (or growmodvar) with proper environment}
+\title{Create RTMB objective from growmod with proper environment}
 \usage{
 make_growmod_obj(pin, datain = NULL, map = list(), random = NULL, Like = 1)
 }
 \arguments{
 \item{pin}{Parameter list, typically created by \code{\link{Makepin}}. If
-\code{pin} was built with \code{Makepin(TempGrowth = TRUE)} (detected via
-\code{attr(pin, "TempGrowth")}), the objective is built from
-\code{\link{growmodvar}} instead of \code{\link{growmod}}. No separate
-argument is needed here — the dispatch follows \code{pin} automatically,
-so \code{pin} and \code{datain} must agree on whether year effects are in
+\code{pin} was built with \code{Makepin(TemporalGrowth = TRUE)} (detected
+via \code{attr(pin, "TemporalGrowth")}), the objective is built by
+calling \code{growmod(..., TemporalGrowth = TRUE)}. No separate argument
+is needed here — the dispatch follows \code{pin} automatically, so
+\code{pin} and \code{datain} must agree on whether year effects are in
 play (see Details).}
 
 \item{datain}{Data list. Optional here: if omitted (\code{NULL}, the
@@ -22,37 +22,42 @@ already exists in \code{.GlobalEnv} — consistent with the original
 \code{make_growmod_obj(pin = pin, map = map)} with \code{datain} already
 assigned globally works exactly as before. If supplied, it is assigned
 into \code{.GlobalEnv}, overwriting any existing global \code{datain}.
-When \code{growmodvar} is being used (i.e. \code{pin} has
-\code{TempGrowth = TRUE}), whichever \code{datain} is ultimately in
-effect must contain \code{nyears} and \code{relyr} (see
-\code{\link{growmodvar}}).}
+When \code{TemporalGrowth = TRUE} is in effect, whichever \code{datain}
+is ultimately in effect must contain \code{nyears}, \code{relyr}, and
+\code{yr_supported} (see \code{\link{growmod}},
+\code{\link{add_year_support}}).}
 
 \item{map}{Optional parameter map, typically from \code{\link{Makemap}}.}
 
 \item{random}{Optional random effects.}
 
-\item{Like}{Integer. Likelihood form passed through to \code{growmod}/
-\code{growmodvar} (1 = asymmetric KL, 2 = symmetric KL). Default 1.}
+\item{Like}{Integer. Likelihood form passed through to \code{growmod}
+(1 = asymmetric KL, 2 = symmetric KL). Default 1.}
 }
 \description{
-This function copies \code{growmod} — or \code{growmodvar}, when \code{pin}
-indicates year-specific growth scaling is in use — to the global environment
-to avoid namespace issues with RTMB's automatic differentiation.
+This function copies \code{growmod} to the global environment to avoid
+namespace issues with RTMB's automatic differentiation, and calls it with
+the \code{TemporalGrowth} value implied by \code{pin} (single merged
+function, not a dispatch between two separate model functions).
 }
 \details{
-\strong{Dispatch logic:} \code{pin} carries a \code{TempGrowth} attribute set by
-\code{\link{Makepin}}. When \code{TRUE}, this function uses
-\code{growmodvar} and additionally checks that \code{sum(datain$yr_supported)}
-is consistent with the length of \code{pin$Sraw} (i.e.
-\code{sum(datain$yr_supported) == length(pin$Sraw) + 1}), stopping with an
-informative error if not — this is meant to catch the case where \code{pin}
-and \code{datain} were built from mismatched \code{tdat}/support-threshold
-versions (e.g. \code{pin} built before \code{relyr}/\code{recyr} were
-finalised, or before/after a change to \code{min_support} in
-\code{\link{add_year_support}}).
+\strong{Dispatch logic:} \code{pin} carries a \code{TemporalGrowth} attribute
+set by \code{\link{Makepin}}. When \code{TRUE}, this function calls
+\code{growmod(..., TemporalGrowth = TRUE)} and additionally checks that
+\code{sum(datain$yr_supported)} is consistent with the length of
+\code{pin$Sraw} (i.e. \code{sum(datain$yr_supported) ==
+length(pin$Sraw) + 1}), stopping with an informative error if not — this
+is meant to catch the case where \code{pin} and \code{datain} were built
+from mismatched \code{tdat}/support-threshold versions (e.g. \code{pin}
+built before \code{relyr}/\code{recyr} were finalised, or before/after a
+change to \code{min_support} in \code{\link{add_year_support}}).
 
-As with the existing \code{growmod} path, the model function is copied into
-\code{.GlobalEnv} before \code{MakeADFun()} is called, since RTMB's automatic
-differentiation requires the function's environment to resolve \code{datain}
-and \code{pin} names directly rather than through this function's local scope.
+The model function is copied into \code{.GlobalEnv} before
+\code{MakeADFun()} is called, since RTMB's automatic differentiation
+requires the function's environment to resolve \code{datain} and
+\code{pin} names directly rather than through this function's local scope.
+\code{TemporalGrowth} itself is passed as a plain (non-AD) argument to
+\code{growmod}, captured via closure alongside \code{Like} — it is decided
+once when \code{MakeADFun} traces the function, not re-evaluated per
+optimization step, so this is safe in the same way \code{Like} always was.
 }

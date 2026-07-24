@@ -1,287 +1,184 @@
-#' Extract Subset of Size Transition Matrix for Stock Assessment
+#' Extract and Save Subset Size Transition Matrices
 #'
-#' Extracts and saves a smaller size transition matrix (STM) from a fitted growth
-#' model for use in stock assessment models that may operate on a different or
-#' smaller length bin structure. The function subsets the full STM to specified
-#' length bins, renormalizes transition probabilities, and exports results as
-#' CSV files suitable for stock assessment software.
+#' Extracts a size-restricted subset of the fitted model's size transition
+#' matrix (or matrices), renormalizes columns to sum to 1, and writes CSV
+#' files suitable for downstream stock assessment use.
 #'
-#' @param LowLB Numeric. Lower bound of the smallest length bin to include in
-#'   the subset STM (in mm). Should match a length bin lower bound from the
-#'   original growth model. Default is 41 mm.
-#' @param UpLB Numeric. Upper bound of the largest length bin to include (in mm).
-#'   Should be less than or equal to the maximum length in the growth model.
-#'   Default is 151 mm.
-#' @param Gap Numeric. Width of length bins (in mm) for the subset STM. This
-#'   defines the resolution of the output matrix and should typically match the
-#'   bin width used in the stock assessment model. Default is 2 mm.
-#' @param Annual Logical. Should the function compound STMs into an annual STM.
-#' @param return Logical. Should the function return an STM and not save.
-#'
-#'
-#' @return NULL (invisibly). The function is called for its side effect of writing
-#'   CSV files to the current working directory.
+#' @param LowLB,UpLB,Gap Numeric. Lower bound, upper bound, and step size (mm)
+#'   for the subset length bins to keep.
+#' @param Annual Logical. If \code{TRUE}, combines all \code{goodts} seasons
+#'   into a single within-year-cycle STM via sequential matrix multiplication
+#'   (as before), plus a mean-length-at-age diagnostic plot. If \code{FALSE}
+#'   (default), writes one STM per \code{goodts} season, uncombined.
+#' @param AvgYears Logical. Only relevant when the fitted model used
+#'   \code{TemporalGrowth = TRUE} (i.e. \code{mod$report()$stm} is 4D:
+#'   \code{nlbin x nlbin x ntsteps x nyears}). If \code{TRUE} (default),
+#'   averages the STM across \strong{supported} years
+#'   (\code{datain$yr_supported}) for each \code{goodts}, giving the same
+#'   single-STM-per-season output shape as a model with no year effects. If
+#'   \code{FALSE}, produces one STM per \code{(goodts, year)} pair instead of
+#'   averaging, with the year appended to each output filename. Ignored
+#'   entirely (no effect) when \code{stm} is still the older 3D shape (i.e.
+#'   the fit used \code{TemporalGrowth = FALSE}).
+#' @param return Logical. If \code{TRUE}, returns the (first) subset STM
+#'   instead of writing it to a file. Only meaningful for a single result --
+#'   with \code{AvgYears = FALSE} producing several STMs, only the first is
+#'   returned; the rest are still written to disk regardless.
 #'
 #' @details
-#' **Purpose:**
-#'
-#' Growth models are often fitted across a wide size range to capture all available
-#' tag-recapture data, but stock assessment models may focus on a narrower size
-#' range relevant to the fishery (e.g., legal-size animals only). This function
-#' bridges the gap by extracting appropriately-sized STMs from the growth model
-#' for direct use in stock assessment.
-#'
-#' **Algorithm:**
-#'
-#' For each time step in \code{goodts}:
-#' \enumerate{
-#'   \item Define target length bins: \code{seq(LowLB, UpLB, Gap)}
-#'   \item Extract the full STM for that time step from the fitted model
-#'   \item Find which rows/columns of the full STM correspond to target bins
-#'   \item Subset the STM to create a smaller matrix
-#'   \item Renormalize each column so probabilities sum to 1 (critical step!)
-#'   \item Set very small probabilities (<1e-7) to exactly 0
-#'   \item Save as CSV with informative filename
-#' }
-#'
-#' **Renormalization:**
-#'
-#' When subsetting an STM, some probability mass may be lost (e.g., transitions
-#' to length bins outside the new range). The renormalization step ensures each
-#' column still represents a valid probability distribution that sums to 1. This
-#' is essential for stock assessment models that assume STM columns are proper
-#' probability distributions.
-#'
-#' **File Naming Convention:**
-#'
-#' Output files are named as:
-#' \itemize{
-#'   \item If \code{l} exists in environment: \code{STM_s[Sex]_L[l]_ts[timestep].csv}
-#'   \item Otherwise: \code{STM_s[Sex]_ts[timestep].csv}
-#' }
-#'
-#' Where:
-#' \itemize{
-#'   \item \code{[Sex]}: 1 = female, 2 = male (from \code{tdat$sex})
-#'   \item \code{[l]}: Optional locality/region identifier if defined
-#'   \item \code{[timestep]}: Time step number from \code{goodts}
-#' }
-#'
-#' **Required Objects in Environment:**
-#'
-#' The function expects the following objects to exist:
-#' \itemize{
-#'   \item \code{mod}: Fitted RTMB/TMB model object from \code{MakeADFun()}
-#'     containing the growth model results
-#'   \item \code{lbinL}: Vector of length bin lower bounds from the original
-#'     growth model (from \code{datain})
-#'   \item \code{tdat}: Tag-recapture data frame containing \code{sex} column
-#'     with sex information ('F' for female, 'M' for male)
-#'   \item \code{goodts}: Vector of time steps with estimated growth (from \code{datain})
-#'   \item \code{l}: (Optional) Locality or region identifier for file naming
-#' }
-#'
-#' @section Important Notes:
-#' \itemize{
-#'   \item The specified length bins (\code{LowLB}, \code{UpLB}, \code{Gap})
-#'     must align with bins in the original growth model, otherwise matching will fail
-#'   \item Very small probabilities (<1e-7) are set to 0 to prevent numerical
-#'     issues in stock assessment models
-#'   \item Files are saved to the current working directory - use \code{setwd()}
-#'     to control output location
-#'   \item All animals in \code{tdat} must have the same sex (function uses
-#'     \code{unique(tdat$sex)})
-#'   \item The function contains a typo in the code: \code{LobLB} should be
-#'     \code{LowLB} in the first line
-#' }
-#'
-#' @section Stock Assessment Integration:
-#' The exported CSV files can be directly imported into length-based stock
-#' assessment models such as:
-#' \itemize{
-#'   \item Integrated Size-Structured Assessment (ISSA)
-#'   \item Catch-at-Length Analysis (CALA)
-#'   \item Custom length-based population models
-#' }
-#'
-#' Each CSV contains an \code{nlbin × nlbin} matrix where element (i,j) represents
-#' the probability of an animal in length bin j transitioning to length bin i
-#' during that time step.
-#'
-#' @examples
-#' \dontrun{
-#' # Typical workflow after fitting growth model:
-#'
-#' # 1. Fit the growth model
-#' datain <- PrepareTagData(tagdata)
-#' pin <- Makepin()
-#' map <- Mapfunc(pin, re = FALSE)
-#' mod <- MakeADFun(growmod, pin, map = map)
-#' opt <- nlminb(mod$par, mod$fn, mod$gr)
-#'
-#' # 2. Extract STMs for stock assessment
-#' # Stock assessment uses 2mm bins from 60-140mm
-#' setwd("output/stms")
-#' ClipSTM(LowLB = 60, UpLB = 140, Gap = 2)
-#'
-#' # Output files: STM_s1_ts1.csv, STM_s1_ts2.csv, etc. (if female)
-#'
-#' # 3. Example with locality identifier
-#' l <- "ZoneA"  # Define locality
-#' ClipSTM(LowLB = 60, UpLB = 140, Gap = 2)
-#' # Output files: STM_s1_LZoneA_ts1.csv, etc.
-#'
-#' # 4. Verify output
-#' stm_test <- read.csv("STM_s1_ts1.csv")
-#' colSums(stm_test)  # Should all be 1.0 (or very close)
-#'
-#' # 5. Use different resolution for sensitivity analysis
-#' # Stock assessment with 5mm bins
-#' ClipSTM(LowLB = 60, UpLB = 140, Gap = 5)
-#'
-#' # 6. Extract for legal-size range only
-#' # If minimum legal size is 76mm
-#' ClipSTM(LowLB = 76, UpLB = 140, Gap = 2)
-#' }
-#'
-#' @section Common Issues:
-#' \describe{
-#'   \item{Mismatched bins}{If \code{match(mlbinL, lbinL)} returns NAs, the
-#'     specified length bins don't exist in the growth model. Adjust \code{LowLB},
-#'     \code{UpLB}, or \code{Gap} to match the original bin structure.}
-#'   \item{Column sums ≠ 1}{After subsetting, column sums may be slightly less
-#'     than 1 due to truncation. The renormalization step fixes this.}
-#'   \item{Multiple sexes in data}{The function assumes \code{unique(tdat$sex)}
-#'     returns a single value. Filter \code{tdat} by sex before calling if needed.}
-#' }
-#'
-#' @seealso
-#' \code{\link{growmod}} for fitting the growth model
-#' \code{\link{Makepin}} for initial parameters
-#' \code{\link{Mapfunc}} for parameter mapping
+#' Unsupported years (\code{!datain$yr_supported}) are excluded from both the
+#' averaging and the per-year output entirely -- they are hard-fixed at
+#' average growth (\code{S = 0}) inside \code{growmod}, not independently
+#' estimated, so including them would either dilute a genuine average with
+#' duplicate copies of it, or misleadingly present a non-informative year as
+#' if it carried real interannual signal.
 #'
 #' @export
-ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual=FALSE, return =  FALSE) {
-  # Create sequence of length bin lower bounds for subset STM
-  lbinL <- bins$lbinL
+ClipSTM <- function(LowLB = 41, UpLB = 151, Gap = 2, Annual = FALSE,
+                     AvgYears = TRUE, return = FALSE) {
+  lbinL  <- bins$lbinL
   mlbinL <- seq(LowLB, UpLB, Gap)
+  tokeep <- match(mlbinL, lbinL)
+  funcsum <- function(x) x / sum(x, na.rm = TRUE)
 
-  if(Annual) {
-    stm <- mod$report()$stm[, , goodts]
-    dim3 <- dim(stm)[3]
-    if(dim3==2) stm <- stm[,,2] %*% stm[,,1]
-    if(dim3==3) stm <- stm[,,3] %*% stm[,,2] %*% stm[,,1]
-    if(dim3==4) stm <- stm[,,4] %*% stm[,,3] %*% stm[,,2] %*% stm[,,1]
+  stm_full  <- mod$report()$stm
+  has_years <- length(dim(stm_full)) == 4   # TemporalGrowth = TRUE -> 4D array
+  yr_idx    <- if (has_years) which(datain$yr_supported) else NULL
 
-    lenout <- matrix(0, ncol = ncol(stm), nrow = 30)
-    lenout[1, 1] <- 1
-    for (y in 2:30) {
-      lenout[y, ] <- (stm) %*% lenout[y - 1, ]
-    }
-    templen <- apply(lenout, 1, function(x) {
-      wm  <- weighted.mean(bins$lbin, x)
-      wv  <- sum(x * (bins$lbin - wm)^2) / sum(x)  # weighted variance
-      wsd <- sqrt(wv)
-      n   <- sum(x > 0)                              # effective n (non-zero bins)
-      se  <- wsd / sqrt(n)
-      c(mean = wm,
-        lo95 = wm - 1.96 * se,
-        hi95 = wm + 1.96 * se)
-    }) %>% t() %>% as.data.frame()
-
-    templen$step <- seq_len(nrow(templen))
-
-    ggplot(templen, aes(x = step)) +
-      geom_ribbon(aes(ymin = lo95, ymax = hi95), fill = "#378ADD", alpha = 0.15) +
-      geom_line(aes(y = mean), colour = "#185FA5", linewidth = 0.8) +
-      geom_point(aes(y = mean), colour = "#185FA5", size = 1.8) +
-      labs(
-        x     = "Annual Time step",
-        y     = "Mean length (mm)",
-        title = "Mean length-at-age with 95% CI"
-      ) +
-      theme_minimal(base_size = 12) +
-      theme(
-        panel.grid.minor = element_blank(),
-        plot.title       = element_text(size = 13, face = "plain")
-      )
-
-    # Find which rows/columns correspond to desired length bins
-    tokeep <- match(mlbinL, lbinL)
-
-    # Subset to create smaller STM
+  finalize_stm <- function(stm) {
     stm2 <- stm[tokeep, tokeep]
-
-    # Renormalize columns to sum to 1 (critical for stock assessment)
-    funcsum <- function(x) { x / sum(x, na.rm = TRUE) }
     stm2 <- apply(stm2, 2, funcsum)
-
-    # Set very small probabilities to exactly zero
     stm2[stm2 < 1e-7] <- 0
-
-    # Determine sex code (1 = female, 2 = male)
-    Sex <- ifelse(unique(tdat$Lsex) == 'F', 'Fem', 'Male')
-    if (exists('a')&!exists('l')) { l <- a }
-    # Construct filename
-
-    if (exists('p')&exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_', Sex, '_L', l, '_p',p, '_Annual.csv') }
-    if (exists('p')&!exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_p',p, '_Annual.csv') }
-    if (!exists('p')&exists('l')&!exists('Sex')) {
-      Fname <- paste0('STM_L',l, '_Annual.csv') }
-    if (!exists('p')&!exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_',Sex, '_Annual.csv') }
-    if (exists('p')&!exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_', Sex, '_p',p, '_Annual.csv') }
-    if (!exists('p')&exists('l')&exists('Sex')) {
-      Fname <- paste0('STM_', Sex, '_L',l,  '_Annual.csv') }
-
-    if(return==FALSE) {print(paste("Saving:", Fname))
-      write.csv(stm2, Fname, row.names = FALSE)}
-    if(return==TRUE) return(stm2)
-
+    stm2
   }
-  # Process each time step with estimated growth
-  if(!Annual){
+
+  ## ---- Annual = TRUE: combine goodts seasons into one within-year STM ----
+  if (Annual) {
+    combine_seasons <- function(stm_seasons) {
+      # stm_seasons: nlbin x nlbin x length(goodts), for ONE year (or the
+      # year-averaged case). Sequentially multiply seasons together, exactly
+      # as the original fixed dim3==2/3/4 cases did, but for any length.
+      dim3 <- dim(stm_seasons)[3]
+      out <- stm_seasons[, , 1]
+      if (dim3 >= 2) for (i in 2:dim3) out <- stm_seasons[, , i] %*% out
+      out
+    }
+
+    if (!has_years) {
+      annual_list <- list(avg = combine_seasons(stm_full[, , goodts]))
+    } else if (AvgYears) {
+      # Average each season across supported years FIRST, then combine
+      # seasons -- gives one averaged annual STM.
+      avg_seasons <- array(0, c(dim(stm_full)[1], dim(stm_full)[2], length(goodts)))
+      for (i in seq_along(goodts)) {
+        avg_seasons[, , i] <- apply(stm_full[, , goodts[i], yr_idx, drop = FALSE], c(1, 2), mean)
+      }
+      annual_list <- list(avg = combine_seasons(avg_seasons))
+    } else {
+      # One combined annual STM PER supported year, no averaging.
+      annual_list <- setNames(
+        lapply(yr_idx, function(yr) combine_seasons(stm_full[, , goodts, yr])),
+        paste0("yr", yr_idx)
+      )
+    }
+
+    for (nm in names(annual_list)) {
+      stm <- annual_list[[nm]]
+
+      # Diagnostic mean-length-at-age plot -- averaged case only (one plot
+      # per supported year would be excessive by default; extend this loop
+      # if per-year diagnostic plots are ever wanted).
+      if (nm == "avg") {
+        lenout <- matrix(0, ncol = ncol(stm), nrow = 30)
+        lenout[1, 1] <- 1
+        for (y in 2:30) lenout[y, ] <- stm %*% lenout[y - 1, ]
+        templen <- apply(lenout, 1, function(x) {
+          wm  <- weighted.mean(bins$lbin, x)
+          wv  <- sum(x * (bins$lbin - wm)^2) / sum(x)
+          wsd <- sqrt(wv)
+          n   <- sum(x > 0)
+          se  <- wsd / sqrt(n)
+          c(mean = wm, lo95 = wm - 1.96 * se, hi95 = wm + 1.96 * se)
+        }) %>% t() %>% as.data.frame()
+        templen$step <- seq_len(nrow(templen))
+
+        print(
+          ggplot(templen, aes(x = step)) +
+            geom_ribbon(aes(ymin = lo95, ymax = hi95), fill = "#378ADD", alpha = 0.15) +
+            geom_line(aes(y = mean), colour = "#185FA5", linewidth = 0.8) +
+            geom_point(aes(y = mean), colour = "#185FA5", size = 1.8) +
+            labs(x = "Annual Time step", y = "Mean length (mm)",
+                 title = "Mean length-at-age with 95% CI") +
+            theme_minimal(base_size = 12) +
+            theme(panel.grid.minor = element_blank(),
+                  plot.title = element_text(size = 13, face = "plain"))
+        )
+      }
+
+      stm2 <- finalize_stm(stm)
+
+      Sex <- ifelse(unique(tdat$Lsex) == 'F', 'Fem', 'Male')
+      if (exists('a') & !exists('l')) { l <- a }
+
+      yr_suffix <- if (nm == "avg") "" else paste0("_", nm)
+
+      if (exists('p') & exists('l') & exists('Sex')) {
+        Fname <- paste0('STM_', Sex, '_L', l, '_p', p, '_Annual', yr_suffix, '.csv') }
+      if (exists('p') & !exists('l') & !exists('Sex')) {
+        Fname <- paste0('STM_p', p, '_Annual', yr_suffix, '.csv') }
+      if (!exists('p') & exists('l') & !exists('Sex')) {
+        Fname <- paste0('STM_L', l, '_Annual', yr_suffix, '.csv') }
+      if (!exists('p') & !exists('l') & exists('Sex')) {
+        Fname <- paste0('STM_', Sex, '_Annual', yr_suffix, '.csv') }
+      if (exists('p') & !exists('l') & exists('Sex')) {
+        Fname <- paste0('STM_', Sex, '_p', p, '_Annual', yr_suffix, '.csv') }
+      if (!exists('p') & exists('l') & exists('Sex')) {
+        Fname <- paste0('STM_', Sex, '_L', l, '_Annual', yr_suffix, '.csv') }
+
+      if (return == FALSE) {
+        print(paste("Saving:", Fname))
+        write.csv(stm2, Fname, row.names = FALSE)
+      }
+      if (return == TRUE) return(stm2)
+    }
+  }
+
+  ## ---- Annual = FALSE: one STM per goodts season, uncombined ----
+  if (!Annual) {
     for (tt in goodts) {
-      # Extract STM for this time step from fitted model
-      stm <- mod$report()$stm[, , tt]
+      if (!has_years) {
+        stm_list <- list(avg = stm_full[, , tt])
+      } else if (AvgYears) {
+        stm_list <- list(avg = apply(stm_full[, , tt, yr_idx, drop = FALSE], c(1, 2), mean))
+      } else {
+        stm_list <- setNames(lapply(yr_idx, function(yr) stm_full[, , tt, yr]),
+                              paste0("yr", yr_idx))
+      }
 
-      # Find which rows/columns correspond to desired length bins
-      tokeep <- match(mlbinL, lbinL)
+      for (nm in names(stm_list)) {
+        stm2 <- finalize_stm(stm_list[[nm]])
 
-      # Subset to create smaller STM
-      stm2 <- stm[tokeep, tokeep]
+        Sex <- ifelse(unique(tdat$Lsex) == 'F', 1, 2)
+        if (exists('a') & !exists('l')) { l <- a }
 
-      # Renormalize columns to sum to 1 (critical for stock assessment)
-      funcsum <- function(x) { x / sum(x, na.rm = TRUE) }
-      stm2 <- apply(stm2, 2, funcsum)
+        yr_suffix <- if (nm == "avg") "" else paste0("_", nm)
 
-      # Set very small probabilities to exactly zero
-      stm2[stm2 < 1e-7] <- 0
+        if (exists('p') & exists('l') & exists('Sex')) {
+          Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt, '_p', p, yr_suffix, '.csv') }
+        if (exists('p') & !exists('l') & !exists('Sex')) {
+          Fname <- paste0('STM_p', p, '_ts', tt, yr_suffix, '.csv') }
+        if (!exists('p') & exists('l') & !exists('Sex')) {
+          Fname <- paste0('STM_L', l, '_ts', tt, yr_suffix, '.csv') }
+        if (!exists('p') & !exists('l') & exists('Sex')) {
+          Fname <- paste0('STM_s', Sex, '_ts', tt, yr_suffix, '.csv') }
+        if (exists('p') & !exists('l') & exists('Sex')) {
+          Fname <- paste0('STM_s', Sex, '_ts', tt, '_p', p, yr_suffix, '.csv') }
+        if (!exists('p') & exists('l') & exists('Sex')) {
+          Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt, yr_suffix, '.csv') }
 
-      # Determine sex code (1 = female, 2 = male)
-      Sex <- ifelse(unique(tdat$Lsex) == 'F', 1, 2)
-      if (exists('a')&!exists('l')) { l <- a }
-      # Construct filename
-
-      if (exists('p')&exists('l')&exists('Sex')) {
-        Fname <- paste0('STM_s', Sex, '_L', l, '_ts', tt,'_p',p, '.csv') }
-      if (exists('p')&!exists('l')&!exists('Sex')) {
-        Fname <- paste0('STM_p',p, '_ts', tt, '.csv') }
-      if (!exists('p')&exists('l')&!exists('Sex')) {
-        Fname <- paste0('STM_L',l, '_ts', tt, '.csv') }
-      if (!exists('p')&!exists('l')&exists('Sex')) {
-        Fname <- paste0('STM_s',Sex, '_ts', tt, '.csv') }
-      if (exists('p')&!exists('l')&exists('Sex')) {
-        Fname <- paste0('STM_s', Sex, '_ts', tt, '_p',p,'.csv') }
-      if (!exists('p')&exists('l')&exists('Sex')) {
-        Fname <- paste0('STM_s', Sex, '_L',l, '_ts', tt,'.csv') }
-
-
-      print(paste("Saving:", Fname))
-      write.csv(stm2, Fname, row.names = FALSE)
+        print(paste("Saving:", Fname))
+        write.csv(stm2, Fname, row.names = FALSE)
+      }
     }
   }
   invisible(NULL)

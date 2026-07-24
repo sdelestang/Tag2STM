@@ -8,9 +8,9 @@ build_lenout_envelope(rep_out, datain)
 }
 \arguments{
 \item{rep_out}{List. The result of \code{mod$rep()} for a fitted
-\code{growmodvar} model. Must contain \code{S}, \code{growthmat}, and
+\code{growmod(..., TemporalGrowth = TRUE)} model. Must contain \code{S}, \code{growthmat}, and
 \code{LsigGrow} (all reported by the current version of
-\code{growmodvar}).}
+\code{growmod(..., TemporalGrowth = TRUE)}).}
 
 \item{datain}{List. The same \code{datain} object used to fit the model —
 needed for \code{nlbin}, \code{ntsteps}, \code{goodts}, \code{lbin},
@@ -23,9 +23,9 @@ dimension is (1) S=0 average year, (2) worst fitted year (min S),
 (3) best fitted year (max S).
 }
 \description{
-Companion function to \code{\link{growmodvar}}. Reconstructs the same
+Companion function to \code{\link{growmod}}. Reconstructs the same
 \code{scenario_S <- c(0, min(S), max(S))} envelope that an earlier version
-of \code{growmodvar} tried to build internally — but that approach fails
+of \code{growmod(..., TemporalGrowth = TRUE)} tried to build internally — but that approach fails
 inside RTMB's AD-traced objective function, because \code{S} is derived
 from the estimated parameter \code{Sraw} and is therefore an AD type while
 the model is being fit; \code{min()}/\code{max()} require comparisons,
@@ -37,10 +37,10 @@ doubles, and \code{min()}/\code{max()} are unproblematic.
 }
 \details{
 If \code{rep_out$S} is \code{NULL} (i.e. the fit was a plain
-\code{growmod}, not \code{growmodvar}), this function returns \code{NULL}
+\code{growmod}, not \code{growmod(..., TemporalGrowth = TRUE)}), this function returns \code{NULL}
 rather than erroring, so callers (e.g. \code{plotfit}) can check for that
 and fall back to a single-trajectory plot.
 }
 \seealso{
-\code{\link{growmodvar}}
+\code{\link{growmod}}
 }

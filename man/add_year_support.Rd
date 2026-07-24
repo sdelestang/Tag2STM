@@ -13,7 +13,7 @@ add_year_support(datain, min_support = 1)
 \item{min_support}{Integer. Minimum number of animal-years of support
 required for a year to be freely estimated. Years below this threshold
 have their growth-scaling effect fixed at exactly 0 (average growth)
-inside \code{\link{growmodvar}}, rather than being left to float on the
+inside \code{\link{growmod}}, rather than being left to float on the
 sum-to-zero ridge penalty's degenerate equilibrium — an unsupported year
 does not shrink toward 0 under that penalty alone, it collapses onto
 whatever value satisfies the constraint given the other years, which can
@@ -35,14 +35,14 @@ Computes, for each modelled year, how many "animal-years" of recapture
 data actually inform that year (i.e. how many tagged animals had at least
 one moult opportunity while that year was current), and flags which years
 meet a minimum support threshold. Must be run on \code{datain}
-\strong{before} calling \code{Makepin(TempGrowth = TRUE)}, since
+\strong{before} calling \code{Makepin(TemporalGrowth = TRUE)}, since
 \code{Makepin} sizes the \code{Sraw} parameter vector based on the number
 of supported years.
 }
 \details{
-Uses the same absolute-time-index arithmetic as \code{\link{growmodvar}}'s
+Uses the same absolute-time-index arithmetic as \code{\link{growmod}}'s
 likelihood loop (\code{relyr}/\code{relts} -> \code{abs0} -> \code{abst} ->
-\code{yearvec}), so "supported" here means exactly what \code{growmodvar}
+\code{yearvec}), so "supported" here means exactly what \code{growmod(..., TemporalGrowth = TRUE)}
 would use to decide which years an animal's liberty period passes through
 — this function is not a separate approximation, it is the same logic run
 once, ahead of time, on plain (non-AD) data.
@@ -52,10 +52,10 @@ once, ahead of time, on plain (non-AD) data.
 datain <- add_year_support(datain, min_support = 3)
 table(datain$yr_supported)          # how many years pass the threshold
 which(!datain$yr_supported)         # which years will be fixed at S = 0
-pin <- Makepin(TempGrowth = TRUE)   # sizes Sraw from datain$yr_supported
+pin <- Makepin(TemporalGrowth = TRUE)   # sizes Sraw from datain$yr_supported
 }
 
 }
 \seealso{
-\code{\link{Makepin}}, \code{\link{growmodvar}}
+\code{\link{Makepin}}, \code{\link{growmod}}
 }

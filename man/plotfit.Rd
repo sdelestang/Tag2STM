@@ -17,9 +17,11 @@ growth trajectories with confidence intervals.
 \details{
 This function expects the following objects to exist in the calling environment:
 \describe{
-\item{mod}{A fitted RTMB model object from \code{MakeADFun()} — either \code{growmod}
-or \code{growmodvar}. The function auto-detects which was used by checking
-whether \code{mod$rep()$S} and \code{mod$rep()$lenout_scenarios} are present.}
+\item{mod}{A fitted RTMB model object from \code{MakeADFun()} — \code{growmod()},
+either \code{TemporalGrowth = FALSE} or \code{TRUE}. The function auto-detects
+which was used by checking whether \code{mod$rep()$S} is present, and
+builds the scenario envelope itself (via \code{build_lenout_envelope()})
+when it is.}
 \item{tdat}{Data frame with tag-recapture observations (columns: rccl, Clbin, Tlbin)}
 \item{lbin}{Numeric vector of length bin midpoints}
 \item{datain}{List containing model input data (must include tsteps)}
@@ -37,10 +39,10 @@ The function creates six diagnostic panels:
 \item Growth increment curves by length, with a growth-spread ribbon
 (mean +/- sd_growth, sd_growth interpolated from \code{sigGrowvec} at
 each bin's mean increment)
-\item If the fitted model is \code{growmodvar} (i.e. \code{mod$rep()$S}
-exists): year effects (\code{S}) shown as percent deviation in mean
-growth from the average year, one bar per modelled year. Otherwise,
-falls back to the original growth-spread-vs-increment-size panel.
+\item If the model was fit with \code{TemporalGrowth = TRUE} (i.e.
+\code{mod$rep()$S} exists): year effects (\code{S}) shown as percent
+deviation in mean growth from the average year, one bar per modelled
+year. Otherwise, falls back to the original growth-spread-vs-increment-size panel.
 \item Projected growth trajectory with 95\% CI ribbon for the average
 year. If \code{mod$rep()$lenout_scenarios} exists, the slowest- and
 fastest-fitted-year median trajectories are overlaid as dashed lines.

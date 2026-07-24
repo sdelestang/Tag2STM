@@ -173,7 +173,8 @@ growmodvar <- function(pin, Like = 1) {
     for (ns in goodts) {
       for (fm in 1:nlbin) {
         mn_growth <- growthmat[ns, fm] * exp(S[yr])
-        sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * mn_growth))
+        #sd_growth <- exp(LsigGrow_base) * (1 - exp(-exp(Lsig_rate) * mn_growth))
+        sd_growth <- exp(LsigGrow_base) * mn_growth
 
         probs <- rep(0, nlbin)
         for (k in fm:(nlbin - 1)) {
