@@ -50,6 +50,9 @@ at \code{seq(0, 5, 0.1)} (used by \code{plotfit}'s ribbon)}
 \item{MerrorRel}, \item{MerrorRec}{Estimated individual measurement errors}
 \item{LsigGrow}{The fitted scalar log-CV parameter}
 \item{Pmoult_vec}{P(moult) at each size bin, for diagnostic plotting}
+\item{Pmoult_par}{The raw fitted logistic coefficients (intercept, slope),
+reported so \code{build_lenout_envelope} can use the actual fitted
+hurdle rather than falling back to an "always moult" default}
 \item{S}{Only present when \code{TemporalGrowth = TRUE}: length
 \code{nyears}, the fitted year effects (sums to 0 among supported years)}
 }

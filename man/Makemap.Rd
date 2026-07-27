@@ -16,7 +16,13 @@ which this function detects automatically and maps separately from
 \item{re}{Logical. Should individual-level measurement error random effects
 (\code{MerrorRel} and \code{MerrorRec}) be estimated? If \code{FALSE} (default),
 these parameters are fixed at their initial values (typically 0). If \code{TRUE},
-they are removed from the map and estimated as random effects. Default is \code{FALSE}.}
+they are removed from the map and estimated as random effects, AND
+\code{LMerrorRelsigma}/\code{LMerrorRecsigma} (the SD they are drawn
+from) are also freed to be estimated -- fixing that SD while letting
+the individual values vary would cap how much they're allowed to move
+at an arbitrary default, defeating the point of \code{re = TRUE}.
+\code{LsigError} is NOT coupled to \code{re} and stays fixed regardless
+(see Details for why). Default is \code{FALSE}.}
 
 \item{estTemporalGrowth}{Logical. Only relevant when \code{pin} contains \code{Sraw}
 (i.e. was built with \code{Makepin(TemporalGrowth = TRUE)}). If \code{TRUE} (default),
@@ -121,19 +127,21 @@ When \code{re = TRUE}:
 }
 
 \strong{Sigma Parameters:}
-By default, \code{LsigError}, \code{LMerrorRelsigma}, and \code{LMerrorRecsigma}
-are FIXED at their initial values. This is appropriate when:
-\itemize{
-\item You want to use expert-specified measurement error values
-\item You're conducting sensitivity analyses with different fixed error levels
-\item The model has difficulty estimating these simultaneously with other parameters
-}
+\code{LsigError} is ALWAYS fixed at its initial value, regardless of
+\code{re} -- see Details above for why (freeing it collapses the growth
+curve, since a single release/recapture measurement pair per animal can't
+separate measurement noise from real growth). \code{LMerrorRelsigma} and
+\code{LMerrorRecsigma} are coupled to \code{re}: fixed when \code{re =
+FALSE} (consistent with \code{MerrorRel}/\code{MerrorRec} themselves being
+fixed at 0 then, so their SD has nothing to act on anyway), and left free
+to estimate automatically when \code{re = TRUE} -- no manual
+\code{map$LMerrorRelsigma <- NULL} step needed.
 
-To estimate these parameters, remove them from the map before calling \code{MakeADFun()}:
+To estimate \code{LsigError} anyway (not recommended given the collapse
+risk above, but available for sensitivity analysis), remove it from the
+map explicitly before calling \code{MakeADFun()}:
 \preformatted{
 map$LsigError <- NULL
-map$LMerrorRelsigma <- NULL
-map$LMerrorRecsigma <- NULL
 }
 }
 \section{Required Environment Variables}{
@@ -150,22 +158,21 @@ The function requires \code{datain} to exist in the calling environment, contain
 \dontrun{
 # Assuming datain with goodts defined and pin created:
 
-# Example 1: Basic model with fixed sigma, no random effects
+# Example 1: Basic model, LsigError fixed, no random effects
 pin <- Makepin()
 map <- Makemap(pin, re = FALSE)
 obj <- MakeADFun(growmod, pin, map = map)
 
-# Example 2: Estimate measurement error sigma
+# Example 2: Estimate LsigError anyway (not recommended, see Details)
 pin <- Makepin()
 map <- Makemap(pin, re = FALSE)
 map$LsigError <- NULL  # Remove from map to estimate
 obj <- MakeADFun(growmod, pin, map = map)
 
-# Example 3: Model with individual measurement error random effects
+# Example 3: Individual measurement error random effects -- re = TRUE
+# frees MerrorRel/MerrorRec AND their sigmas automatically, no extra step
 pin <- Makepin(LMerrorRelsigma = log(0.5), LMerrorRecsigma = log(0.5))
 map <- Makemap(pin, re = TRUE)
-map$LMerrorRelsigma <- NULL  # Estimate the sigma for random effects
-map$LMerrorRecsigma <- NULL
 obj <- MakeADFun(
   growmod,
   pin,

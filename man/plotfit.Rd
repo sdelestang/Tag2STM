@@ -4,7 +4,20 @@
 \alias{plotfit}
 \title{Plot Tag-Recapture Model Diagnostics}
 \usage{
-plotfit(datIn = tdat)
+plotfit(datIn = tdat, mout = NULL)
+}
+\arguments{
+\item{datIn}{Data frame of tag-recapture observations. Default \code{tdat}.}
+
+\item{mout}{Optional. The result of \code{nlminb(mod$par, mod$fn, mod$gr, ...)}.
+If supplied, the model is reported explicitly at \code{mout$par} via
+\code{mod$report(mout$par)}, guaranteeing the plot reflects the actual
+fitted optimum. If omitted (\code{NULL}, the default), falls back to
+\code{mod$rep()}, which reports at \code{mod}'s current internal
+parameter state -- usually the optimum right after fitting, but this can
+silently go stale if anything else (e.g. \code{sdreport()},
+\code{tmbprofile()}) has called \code{mod$fn()}/\code{mod$gr()} since.
+Passing \code{mout} explicitly is recommended.}
 }
 \value{
 Invisibly returns the model report object from \code{mod$rep()}.

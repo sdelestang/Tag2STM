@@ -276,11 +276,10 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       # Absolute time indexing -> parallel season and year vectors.
       # Guard tsteps[r] > 0 explicitly: R's 0:(-1) evaluates to c(0, -1), NOT
       # an empty sequence, so without this guard a zero-liberty animal
-      # (tsteps[r] == 0, a large fraction of this dataset) would silently get
+      # (tsteps[r] == 0 would silently get
       # a 2-element tstepsvec/yearvec computed from a bogus negative offset,
       # and the STM would be applied twice when it should be applied zero
-      # times. This was a real bug, not just a theoretical edge case, given
-      # how many recaptures here have tsteps == 0.
+      # times.
       if (tsteps[r] > 0) {
         abs0 <- (relyr[r] - 1) * ntsteps + relts[r]
         abst <- abs0 + (0:(tsteps[r] - 1))
