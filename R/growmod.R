@@ -3,192 +3,159 @@
 #' Estimates flexible, data-driven growth patterns from tag-recapture data by
 #' constructing size transition matrices (STMs) that describe how animals grow
 #' from one length bin to another over time. Includes a moult-probability
-#' hurdle (see Details) and, optionally, year-specific proportional growth
-#' scaling. The resulting STMs can be directly incorporated into length-based
-#' stock assessment models.
+#' hurdle with an optional biological minimum-moults-per-year floor, an
+#' internal identification mixture (replacing the old external auxiliary
+#' data machinery), and, optionally, year-specific proportional growth
+#' scaling.
 #'
-#' @param pin List. Parameter list created by \code{\link{Makepin}}, containing
-#'   initial values for all model parameters including growth parameters,
-#'   the moult-probability hurdle, measurement error terms, and (when
-#'   \code{TemporalGrowth = TRUE}) the year-effect parameters.
-#' @param Like Integer. Likelihood form to use for comparing projected and
-#'   observed length distributions. \code{1} (default): asymmetric KL
-#'   divergence; \code{2}: symmetric KL divergence. This is a structural
-#'   switch passed via closure, not differentiated by RTMB.
-#' @param TemporalGrowth Logical. If \code{TRUE}, fits year-specific
-#'   proportional growth scaling (the model previously implemented as a
-#'   separate function; if \code{FALSE} (default), fits
-#'   the base model with a single average STM and no interannual variation.
-#'   This is also a structural switch, decided once when \code{MakeADFun}
-#'   traces the function -- like \code{Like}, it is plain data at trace time,
-#'   not derived from any AD parameter, so branching on it is safe (unlike,
-#'   e.g., \code{min()}/\code{max()} on an AD-derived quantity -- see the
-#'   year-effect section below for why that distinction matters here).
-#'   \code{pin} must be built with the matching
-#'   \code{Makepin(TemporalGrowth = ...)} value (\code{Sraw} is only present
-#'   in \code{pin} when \code{TRUE}); \code{make_growmod_obj} checks this
-#'   automatically via \code{attr(pin, "TemporalGrowth")}.
+#' @param pin List. Parameter list from \code{Makepin}.
+#' @param Like Integer, 1 (default, asymmetric KL) or 2 (symmetric KL).
+#'   Structural switch, plain data at trace time.
+#' @param TemporalGrowth Logical. Structural switch, as before.
 #'
 #' @details
-#' **Model Overview:**
+#' **CHANGES FROM THE PREVIOUS VERSION**
 #'
-#' This function implements a tag-recapture growth model that:
-#' \enumerate{
-#'   \item Constructs size transition matrices (STMs) from flexible growth parameters
-#'   \item Projects each tagged animal forward through time using appropriate STMs
-#'   \item Compares projected size distributions with observed recapture lengths
-#'   \item Maximizes a multinomial-like likelihood weighted by release cohort sizes
-#' }
+#' \strong{1. Minimum-moults-per-year floor (\code{datain$mpy}).} Some
+#' species have a known biological lower bound on annual moult frequency --
+#' e.g. large western rock lobster must moult at least once a year
+#' (\code{mpy = 1}) even though there are two \code{goodts} moulting windows
+#' each capable of falling as low as 0.5; deep-sea crab may moult as rarely
+#' as once every three years (\code{mpy = 1/3}) with a single annual
+#' \code{goodts}; species with a terminal moult have no such floor
+#' (\code{mpy = 0}, the default, reproduces the original unclamped
+#' logistic exactly).
 #'
-#' **Required Data (from \code{datain}):**
+#' The floor is enforced by construction, not by a penalty: each
+#' \code{goodts} row's logistic is rescaled to asymptote at
+#' \code{mpy_floor} (as size grows large) rather than at 0, so
+#' \code{Pmoult(ns, fm) = mpy_floor + (1 - mpy_floor) * plogis(...)}, always
+#' \code{>= mpy_floor}, with no comparison/branch on an AD-derived quantity
+#' anywhere.
 #'
-#' \itemize{
-#'   \item \code{Rlcl}, \code{Rccl}: release/recapture lengths (carapace length)
-#'   \item \code{tsteps}: time at liberty (number of time steps) for each animal
-#'   \item \code{relts}: release time step (within-season position) for each animal
-#'   \item \code{nlob}: number of lobsters/crabs in each release cohort (for weighting)
-#'   \item \code{lbin}, \code{lbinL}, \code{lbinU}, \code{nlbin}: length bin structure
-#'   \item \code{ntsteps}, \code{goodts}: time step structure and which have adequate data
-#'   \item \code{smoother}: smoothness penalty weight for growth parameters
-#'   \item When \code{TemporalGrowth = TRUE}, additionally: \code{nyears},
-#'     \code{relyr} (release year, 1-based index into 1..nyears -- NOT a raw
-#'     calendar year, see \code{\link{add_year_support}}), and
-#'     \code{yr_supported} (logical, from \code{\link{add_year_support}}).
-#' }
+#' How \code{mpy} is allocated across the year's \code{goodts} seasons is
+#' an ESTIMATED parameter (\code{mpy_split_par}, present in \code{pin} only
+#' when \code{length(goodts) > 1} -- see \code{Makepin}), not a preset
+#' \code{datain} vector: a species may have one moulting window collapsing
+#' toward 0 while another stays near 1 (rather than an even split), and
+#' which window gets which end is generally not known in advance. The
+#' split is built via a softmax over \code{mpy_split_par} with the last
+#' \code{goodts} season's log-odds anchored at 0 for identifiability
+#' (arbitrary anchor choice, unbiased since the parameter starts at 0 --
+#' an exactly even split -- and is free to move either direction). With a
+#' single annual \code{goodts} (e.g. deep-sea crab) there is nothing to
+#' split and \code{mpy} goes entirely to that one season, same as before.
 #'
-#' **Growth Model Structure:**
+#' A guard at the top of the function checks \code{mpy <= 1} (plain data,
+#' safe to compare) and stops with an informative error otherwise, since a
+#' single season's floor can now carry the entire \code{mpy} value (e.g.
+#' fully allocated by the fitted split) and so cannot itself exceed 1.
 #'
-#' Growth is modeled using a random walk approach: \code{growth_vecpar} are
-#' reshaped into a matrix with \code{nlbin} columns and \code{ntsteps} rows;
-#' for each \code{goodts} time step, parameters are converted to cumulative
-#' growth starting from the largest length bin (minimal growth) and adding
-#' increments for each smaller bin. A smoothness penalty encourages adjacent
-#' length bins to have similar growth.
+#' \strong{Smallest bins fixed at exactly 1 (\code{datain$n_pmoult1}).}
+#' The smallest \code{n_pmoult1} length bins (default 1) have Pmoult
+#' hard-fixed at exactly 1 -- juveniles moult with certainty by
+#' definition, which a fitted logistic can only ever approach
+#' asymptotically, never reach exactly. Set to 0 to disable (reverts to
+#' the plain floor+logistic construction for every bin).
 #'
-#' **Growth Variance -- Proportional (CV-type), Not Saturating:**
+#' \strong{2. Internal identification mixture (replaces \code{make_aux_data}/
+#' \code{make_aux2_data} entirely).} The old two-step design (external
+#' preprocessing building \code{aux_*}/\code{aux2_*} data blocks, restricted
+#' to single- or Kmax-capped multi-opportunity records) is gone. Instead,
+#' for every animal, the same \code{tstepsvec} already built for STM
+#' chaining is reused directly to run a moment-matched forward recursion
+#' over its \code{K} \code{goodts} opportunities (arbitrary \code{K}, no
+#' cap), giving an exact Poisson-binomial mixture over moult COUNT with a
+#' moment-matched Gaussian per count bucket (exact for animals with
+#' \code{K <= 1}, an approximation for \code{K > 1} when growth means vary
+#' across seasons within the record -- see \code{ident_mixture_ll} below).
+#' Controlled by \code{datain$ident_wt} (default 0, reproduces a pure
+#' marginal fit exactly -- fit at 0 first to confirm plumbing, then > 0).
 #'
-#' \code{sd_growth = exp(LsigGrow) * mn_growth} -- growth spread is directly
-#' proportional to mean growth increment at each size/season, tapering to
-#' near-zero as growth itself tapers toward zero (e.g. near maximum size).
-#' \code{LsigGrow} is a single scalar (log coefficient of variation), not a
-#' 2-parameter saturating-ceiling curve as in an earlier version of this
-#' model -- stratifying raw single-moult recapture increments by release size
-#' showed both mean AND sd shrinking together toward the largest size
-#' classes, which a saturating-ceiling formula could not reproduce (it
-#' predicts close to the same near-maximal sd regardless of mn_growth once
-#' past a small threshold).
+#' \code{datain$use_individual_error} (default \code{FALSE}) switches
+#' between the population-level \code{sqrt(2)*sigError} measurement-error
+#' term (as before) and a version using each animal's own fitted
+#' \code{MerrorRel}/\code{MerrorRec}. The latter couples this
+#' identification term to the same latent random effects the main
+#' likelihood already fits -- compare both before trusting \code{TRUE}.
 #'
-#' **Moult-Probability Hurdle:**
+#' All \code{aux_*} REPORT objects (\code{AuxLL}, \code{aux_pmoult},
+#' \code{aux_post}) are gone; downstream code (\code{plotfit()} etc.) that
+#' referenced them will need updating to use \code{IdentLL} instead. There
+#' is no longer a "double counting" question or a \code{drop_from_main} /
+#' seasonal-selection caveat to manage, since every animal contributes to
+#' \code{IdentLL} through the same one mechanism regardless of liberty
+#' length.
 #'
-#' Raw single-timestep recapture increments showed ~65% essentially zero
-#' growth -- not a tail of one distribution but a genuinely separate "did not
-#' moult" outcome (consistent with episodic moulting rather than continuous
-#' growth). Each STM column is therefore a mixture: with probability
-#' \code{1 - Pmoult(fm)}, the animal stays exactly in bin \code{fm} (no
-#' moult); with probability \code{Pmoult(fm)}, growth follows the
-#' proportional-CV distribution above, CONDITIONAL on a moult having
-#' occurred. \code{Pmoult(fm) = plogis(Pmoult_par[1] + Pmoult_par[2] *
-#' lbin[fm])} -- a simple 2-parameter logistic in size, not a flexible
-#' per-bin parameter like \code{growth_vecpar}, since the observed size trend
-#' (moult fraction ~0.41 at small sizes to ~0.25 at large sizes) was smooth
-#' and didn't obviously need bin-level flexibility. This hurdle applies
-#' identically whether or not \code{TemporalGrowth} is used. \code{Pmoult} is
-#' currently constant across years and seasons -- worth revisiting if
-#' diagnostics suggest moult probability itself varies by year, not just
-#' growth-given-moult.
-#'
-#' **Year-Specific Growth Scaling (\code{TemporalGrowth = TRUE} only):**
-#'
-#' Each year t gets a multiplicative scalar \code{exp(S_t)} applied to the
-#' mean growth increment (and hence, through the proportional formula above,
-#' to sd_growth too) at every length bin and season. \code{S_t} is on the log
-#' scale (\code{S_t = 0} => average growth). This is deliberately NOT an
-#' additive \code{(1 + S_t)} scaling: that form has a hard wall at
-#' \code{S_t = -1} where \code{mn_growth} hits exactly 0 and \code{sd_growth}
-#' goes negative just past it (\code{pnorm()} returns \code{NaN}); a profile
-#' likelihood run against that parameterization showed the objective still
-#' improving monotonically all the way to the wall with no turnover -- i.e.
-#' the optimizer was running into an undefined region, not converging on a
-#' genuine minimum. \code{exp(S_t)} is strictly positive for any finite
-#' \code{S_t}, so "very slow growth" is expressed smoothly as
-#' \code{S_t -> -infinity}, with no wall to hit.
-#'
-#' \code{S} is constrained to sum to zero on the log scale, among
-#' \strong{supported} years only (see \code{\link{add_year_support}}):
-#' unsupported years are fixed at exactly \code{S = 0} rather than
-#' participating in the sum-to-zero constraint, where an unsupported year
-#' could otherwise be forced to an arbitrary value by construction (this bit
-#' the very first version of this model, in which every unsupported year
-#' collapsed onto whatever the automatically-derived last position required,
-#' regardless of whether that position happened to be the unsupported one).
-#'
-#' Because \code{S} is derived from the parameter \code{Sraw}, it is an AD
-#' type while the model is being traced -- \code{min()}/\code{max()} (or any
-#' comparison) on \code{S} inside this function would raise "Comparison is
-#' generally unsafe for AD types". The worst-year/best-year scenario envelope
-#' is therefore NOT built here; it is a separate post-fit step, in plain R,
-#' from \code{mod$rep()}'s output where \code{S} is already numeric -- see
-#' \code{\link{build_lenout_envelope}}.
-#'
-#' \strong{Design choices worth revisiting:}
-#' \itemize{
-#'   \item \code{PenS} (only when \code{TemporalGrowth = TRUE}) is a ridge
-#'     penalty (weight 1.0) shrinking supported years' \code{S} toward zero
-#'     (it also sums over hard-fixed unsupported years, but those contribute
-#'     exactly 0 regardless). The weight is arbitrary and should be tuned or
-#'     profiled, not left at 1.0 by default.
-#'   \item Animals whose liberty period runs past \code{nyears} have their
-#'     internal year index clamped to \code{nyears} rather than erroring --
-#'     check this is the behaviour you want.
-#' }
-#'
-#' @return Scalar total negative log-likelihood. \code{REPORT()} objects:
-#' \describe{
-#'   \item{LL}{Vector of individual log-likelihoods for each tagged animal}
-#'   \item{lenout}{Matrix, \code{(30*ntsteps) x nlbin} -- average growth
-#'     trajectory (S=0 when \code{TemporalGrowth = TRUE}), for visualizing
-#'     growth trajectories}
-#'   \item{EstCapLen}{Observed recapture length distributions (with
-#'     measurement error) for each animal}
-#'   \item{EstRecLen}{Model-projected length distributions for each animal}
-#'   \item{stm}{Size transition matrices: \code{nlbin x nlbin x ntsteps} when
-#'     \code{TemporalGrowth = FALSE}, or \code{nlbin x nlbin x ntsteps x
-#'     nyears} when \code{TRUE}}
-#'   \item{sigGrowvec}{Growth SDs as a function of growth increment, evaluated
-#'     at \code{seq(0, 5, 0.1)} (used by \code{plotfit}'s ribbon)}
-#'   \item{growthmat}{Matrix of mean growth by length bin and time step}
-#'   \item{MerrorRel}, \item{MerrorRec}{Estimated individual measurement errors}
-#'   \item{LsigGrow}{The fitted scalar log-CV parameter}
-#'   \item{Pmoult_vec}{P(moult) at each size bin, for diagnostic plotting}
-#'   \item{Pmoult_par}{The raw fitted logistic coefficients (intercept, slope),
-#'     reported so \code{build_lenout_envelope} can use the actual fitted
-#'     hurdle rather than falling back to an "always moult" default}
-#'   \item{S}{Only present when \code{TemporalGrowth = TRUE}: length
-#'     \code{nyears}, the fitted year effects (sums to 0 among supported years)}
-#' }
-#'
-#' @seealso \code{\link{Makepin}}, \code{\link{Makemap}},
-#'   \code{\link{make_growmod_obj}}, \code{\link{add_year_support}},
-#'   \code{\link{build_lenout_envelope}}
+#' @return Scalar total negative log-likelihood. Key \code{REPORT()}
+#'   objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
+#'   (per-animal identification log-densities, 0 where an animal had no
+#'   \code{goodts} opportunity), \code{lenout}, \code{EstCapLen},
+#'   \code{EstRecLen}, \code{stm}, \code{sigGrowvec}, \code{growthmat},
+#'   \code{MerrorRel}, \code{MerrorRec}, \code{LsigGrow}, \code{Pmoult_vec},
+#'   \code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
+#'   row, for diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
 #'
 #' @export
 growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
+
+  ## --- Backwards compatibility -------------------------------------------
+  ## Old aux_* fields are no longer consumed at all. mpy/ident_wt/
+  ## use_individual_error/n_pmoult1 are new; all plain data, safe to
+  ## default here.
+  if (is.null(datain$mpy))                 datain$mpy <- 0
+  if (is.null(datain$ident_wt))            datain$ident_wt <- 0
+  if (is.null(datain$use_individual_error)) datain$use_individual_error <- FALSE
+  if (is.null(datain$n_pmoult1))            datain$n_pmoult1 <- 1
+
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
   nobs <- length(Rccl)
 
+  ## mpy is plain data; the feasibility bound is just mpy <= 1 now (a
+  ## single season could in principle carry the whole floor -- see below),
+  ## not mpy/length(goodts) <= 1 as in the old fixed-even-split version.
+  n_goodts <- length(goodts)
+  if (mpy > 1) {
+    stop("datain$mpy = ", mpy, " exceeds 1 -- not a valid probability floor.")
+  }
+
+  ## How mpy is allocated across the year's goodts seasons is now an
+  ## ESTIMATED parameter, not a preset datain vector -- because which
+  ## season carries more of the floor (e.g. one lobster moulting window
+  ## descending to 0 while the other stays near 1, vs. an even 0.5/0.5
+  ## split) is exactly the kind of thing you don't know in advance and
+  ## want the data to decide.
+  ##
+  ## mpy_split_par has length (n_goodts - 1) when n_goodts > 1 (present in
+  ## pin only in that case -- see Makepin), and is transformed via a
+  ## softmax with the LAST goodts season's log-odds anchored at 0 for
+  ## identifiability (standard multinomial-logit-to-simplex construction,
+  ## arbitrary which category is anchored -- doesn't bias the fit since
+  ## the parameter starts at exactly 0, i.e. a perfectly even split, and is
+  ## free to move either direction from there).
+  ##
+  ## When n_goodts <= 1 there's nothing to split -- mpy goes entirely to
+  ## the single season, same as before.
+  if (n_goodts > 1) {
+    split_raw <- c(mpy_split_par, 0)     # length n_goodts, last entry anchored
+    split_exp <- exp(split_raw)
+    split     <- split_exp / sum(split_exp)   # sums to 1 by construction
+    mpy_floor_vec <- mpy * split
+  } else {
+    mpy_floor_vec <- rep(mpy, n_goodts)  # length 0 or 1
+  }
+  ## Index by raw timestep number (1..ntsteps), not by position in goodts,
+  ## so Pmoult_fn(ns, fm) can look it up directly with ns as given elsewhere.
+  mpy_floor <- rep(0, ntsteps)
+  mpy_floor[goodts] <- mpy_floor_vec
+
   if (TemporalGrowth) {
-    # relyr is plain data (not AD), so this comparison is safe here
     if (any(relyr < 1) || any(relyr > nyears)) {
       stop("datain$relyr has values outside 1..", nyears, ". Convert to a ",
            "1-based year index before fitting -- see add_year_support().")
     }
-
-    # --- Year-effect vector ---
-    # Sraw only covers years with adequate recapture support. Unsupported
-    # years are fixed at exactly S = 0 rather than folded into the
-    # sum-to-zero constraint -- see @details.
-    supported_idx <- which(yr_supported)   # plain data, not AD
+    supported_idx <- which(yr_supported)
     n_sup <- length(supported_idx)
     S <- rep(0, nyears)
     if (n_sup > 1) {
@@ -197,7 +164,7 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     ADREPORT(S)
   }
 
-  # --- Initialize output structures ---
+  ## --- Initialize output structures --------------------------------------
   if (TemporalGrowth) {
     stm <- array(0, c(nlbin, nlbin, ntsteps, nyears))
   } else {
@@ -206,13 +173,35 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   EstRecLen <- matrix(0, ncol = length(lbin), nrow = nobs)
   EstCapLen <- matrix(0, ncol = length(lbin), nrow = nobs)
   growthmat <- matrix(0, ncol = length(lbin), nrow = ntsteps)
-  LL <- rep(0, nobs)
+  LL       <- rep(0, nobs)
+  IdentLL  <- rep(0, nobs)
 
   sigError <- exp(LsigError)
 
+  ## Pmoult_fn: the smallest n_pmoult1 length bins are hard-fixed at exactly
+  ## 1 (juveniles moult with certainty, by definition -- not merely "very
+  ## likely", which is all a fitted logistic asymptote can ever give you,
+  ## since plogis() approaches but never reaches exactly 1 for a finite
+  ## argument). fm and n_pmoult1 are both plain data (fm is a loop index,
+  ## n_pmoult1 is a datain scalar), so this comparison is safe -- same class
+  ## as the goodts membership checks elsewhere in this function. Returning
+  ## a plain numeric 1 from the true branch is fine even though the false
+  ## branch returns an AD value: RTMB/TMB arithmetic between AD types and
+  ## plain doubles is completely ordinary (already relied on throughout,
+  ## e.g. "1 - Pmoult").
+  ##
+  ## Beyond n_pmoult1, mpy_floor[ns] is plain data (computed above from data
+  ## only), so the floor rescaling of plogis(...) is a fixed transform of an
+  ## AD quantity, not a branch -- safe. mpy_floor[ns] = 0 (default, e.g.
+  ## non-goodts rows or mpy = 0) reproduces the original unclamped logistic.
+  Pmoult_fn <- function(ns, fm) {
+    if (fm <= n_pmoult1) return(1)
+    fl <- mpy_floor[ns]
+    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] * lbin[fm])
+  }
+
   growth_vecmat <- matrix(growth_vecpar, ncol = nlbin, nrow = ntsteps, byrow = TRUE)
 
-  ## Mean growth curve (shared regardless of TemporalGrowth)
   for (ns in goodts) {
     growth_vec <- rep(0, nlbin)
     growth_vec[nlbin] <- log(1 + exp(growth_vecmat[ns, nlbin]))
@@ -222,16 +211,14 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     growthmat[ns, ] <- growth_vec
   }
 
-  ## Build STM(s). Both branches share the proportional-CV sd_growth and
-  ## moult-probability hurdle; they differ only in whether growth is scaled
-  ## by a year effect and whether stm has a 4th (year) dimension.
+  ## --- Build STM(s) -------------------------------------------------------
   if (TemporalGrowth) {
     for (yr in 1:nyears) {
       for (ns in goodts) {
         for (fm in 1:nlbin) {
           mn_growth <- growthmat[ns, fm] * exp(S[yr])
           sd_growth <- exp(LsigGrow) * mn_growth
-          Pmoult <- plogis(Pmoult_par[1] + Pmoult_par[2] * lbin[fm])
+          Pmoult    <- Pmoult_fn(ns, fm)
 
           probs <- rep(0, nlbin)
           for (k in fm:(nlbin - 1)) {
@@ -251,7 +238,7 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       for (fm in 1:nlbin) {
         mn_growth <- growthmat[ns, fm]
         sd_growth <- exp(LsigGrow) * mn_growth
-        Pmoult <- plogis(Pmoult_par[1] + Pmoult_par[2] * lbin[fm])
+        Pmoult    <- Pmoult_fn(ns, fm)
 
         probs <- rep(0, nlbin)
         for (k in fm:(nlbin - 1)) {
@@ -267,42 +254,116 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     }
   }
 
-  ## Calculate likelihood for each tagged animal
+  ## --- Internal identification mixture (local function) -------------------
+  ## Moment-matched forward recursion over K goodts opportunities. No
+  ## comparisons on AD-derived quantities: the only branches (on m, mi, K)
+  ## are over plain-integer loop indices, never over a weight/probability
+  ## value itself; division-by-zero is avoided with an additive eps instead
+  ## of a guarded branch.
+  ident_mixture_ll <- function(inc, fm, ns_seq, yr_seq) {
+    K <- length(ns_seq)
+    if (K == 0) return(0)   # plain-data branch: fine
+
+    p_k  <- rep(0, K)
+    mu_k <- rep(0, K)
+    vr_k <- rep(0, K)
+    for (k in 1:K) {
+      ns_k <- ns_seq[k]
+      p_k[k] <- Pmoult_fn(ns_k, fm)
+      mg <- growthmat[ns_k, fm]
+      if (TemporalGrowth) mg <- mg * exp(S[yr_seq[k]])
+      mu_k[k] <- mg
+      vr_k[k] <- (exp(LsigGrow) * mg)^2
+    }
+
+    eps <- 1e-10
+    W  <- rep(0, K + 1); W[1] <- 1
+    Mn <- rep(0, K + 1)
+    Vr <- rep(0, K + 1)
+
+    for (k in 1:K) {
+      newW  <- rep(0, K + 1)
+      newMn <- rep(0, K + 1)
+      newVr <- rep(0, K + 1)
+
+      for (mi in 1:(K + 1)) {
+        m <- mi - 1   # plain integer, safe to compare below
+
+        wA  <- W[mi] * (1 - p_k[k])
+        muA <- Mn[mi]
+        vrA <- Vr[mi]
+
+        if (m >= 1) {
+          wB  <- W[mi - 1] * p_k[k]
+          muB <- Mn[mi - 1] + mu_k[k]
+          vrB <- Vr[mi - 1] + vr_k[k]
+        } else {
+          wB <- 0; muB <- 0; vrB <- 0
+        }
+
+        wtot <- wA + wB
+        newW[mi]  <- wtot
+        newMn[mi] <- (wA * muA + wB * muB) / (wtot + eps)
+        ex2       <- (wA * (vrA + muA^2) + wB * (vrB + muB^2)) / (wtot + eps)
+        newVr[mi] <- ex2 - newMn[mi]^2
+      }
+      W <- newW; Mn <- newMn; Vr <- newVr
+    }
+
+    dens <- 0
+    for (mi in 1:(K + 1)) {
+      sd_tot <- sqrt(Vr[mi] + 2 * sigError^2)
+      dens <- dens + W[mi] * dnorm(inc, Mn[mi], sd_tot)
+    }
+    log(dens + 1e-300)
+  }
+
+  ## --- Main (marginal) likelihood + identification term, one animal at a time
   for (r in 1:nobs) {
     Relength <- MerrorRel[r] + Rlcl[r]
     lens <- pnorm(lbinU, Relength, sigError) - pnorm(lbinL, Relength, sigError)
 
     if (TemporalGrowth) {
-      # Absolute time indexing -> parallel season and year vectors.
-      # Guard tsteps[r] > 0 explicitly: R's 0:(-1) evaluates to c(0, -1), NOT
-      # an empty sequence, so without this guard a zero-liberty animal
-      # (tsteps[r] == 0 would silently get
-      # a 2-element tstepsvec/yearvec computed from a bogus negative offset,
-      # and the STM would be applied twice when it should be applied zero
-      # times.
       if (tsteps[r] > 0) {
         abs0 <- (relyr[r] - 1) * ntsteps + relts[r]
         abst <- abs0 + (0:(tsteps[r] - 1))
-        tstepsvec <- ((abst - 1) %% ntsteps) + 1
+        tstepsvec <- ((abst - 1) %%  ntsteps) + 1
         yearvec   <- ((abst - 1) %/% ntsteps) + 1
-        yearvec[yearvec > nyears] <- nyears   # clamp animals outliving the modelled years
-
-        for (ts in 1:length(tstepsvec)) {
-          if (tstepsvec[ts] %in% goodts) {
-            tmpstm <- stm[, , tstepsvec[ts], yearvec[ts]]
-            lens <- tmpstm %*% lens
-          }
-        }
+        yearvec[yearvec > nyears] <- nyears
+      } else {
+        tstepsvec <- integer(0)
+        yearvec   <- integer(0)
       }
     } else {
-      # Original cycling logic -- no relyr/nyears needed at all
-      tstepsvec <- c(relts[r]:ntsteps, rep(1:ntsteps, 30))[1:tsteps[r]]
-      if (length(tstepsvec) > 0) {
-        for (ts in 1:length(tstepsvec)) {
-          if (tstepsvec[ts] %in% goodts) {
-            tmpstm <- stm[, , tstepsvec[ts]]
-            lens <- tmpstm %*% lens
-          }
+      tstepsvec <- if (tsteps[r] > 0) {
+        c(relts[r]:ntsteps, rep(1:ntsteps, 30))[1:tsteps[r]]
+      } else integer(0)
+      yearvec <- rep(1L, length(tstepsvec))   # unused when TemporalGrowth = FALSE
+    }
+
+    ## --- Identification term for this animal ---
+    good_idx <- which(tstepsvec %in% goodts)
+    if (length(good_idx) > 0) {
+      fm_r <- which.min(abs(lbin - Rlcl[r]))   # release bin, fixed-bin approx
+      inc_r <- if (use_individual_error) {
+        (Rccl[r] + MerrorRec[r]) - (Rlcl[r] + MerrorRel[r])
+      } else {
+        Rccl[r] - Rlcl[r]
+      }
+      IdentLL[r] <- ident_mixture_ll(
+        inc = inc_r, fm = fm_r,
+        ns_seq = tstepsvec[good_idx],
+        yr_seq = if (TemporalGrowth) yearvec[good_idx] else NULL
+      )
+    }
+
+    ## --- STM chaining (unchanged logic, reusing tstepsvec/yearvec above) ---
+    if (length(tstepsvec) > 0) {
+      for (ts in 1:length(tstepsvec)) {
+        if (tstepsvec[ts] %in% goodts) {
+          tmpstm <- if (TemporalGrowth) stm[, , tstepsvec[ts], yearvec[ts]]
+                    else stm[, , tstepsvec[ts]]
+          lens <- tmpstm %*% lens
         }
       }
     }
@@ -314,7 +375,8 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
 
     eps <- 1e-8
     if (Like == 1) {
-      LL[r] <- sum((EstCapLen[r, ] + eps) * log((EstRecLen[r, ] + eps) / (EstCapLen[r, ] + eps))) * nlob[r]
+      LL[r] <- sum((EstCapLen[r, ] + eps) *
+                     log((EstRecLen[r, ] + eps) / (EstCapLen[r, ] + eps))) * nlob[r]
     }
     if (Like == 2) {
       P <- EstRecLen[r, ] + eps
@@ -323,11 +385,9 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     }
   }
 
-  ## Average growth trajectory. TemporalGrowth = FALSE: reuse stm[,,ts]
-  ## directly (already the only STM there is). TemporalGrowth = TRUE:
-  ## literal Ssc=0 built fresh (a constant, not a comparison on an AD type,
-  ## so safe here -- see @details), since stm[,,,yr] is year-specific and
-  ## none of those slices IS the average.
+  TIdentLL <- sum(IdentLL) * ident_wt
+
+  ## --- Average growth trajectory (unchanged) -------------------------------
   lenout <- matrix(0, 30 * ntsteps, length(lbin))
   lenout[1, 1] <- 1
   cnt <- 0
@@ -339,9 +399,9 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
         if (TemporalGrowth) {
           avg_stm <- matrix(0, nlbin, nlbin)
           for (fm in 1:nlbin) {
-            mn_growth <- growthmat[ts, fm]              # Ssc = 0, i.e. * exp(0) = 1x
+            mn_growth <- growthmat[ts, fm]
             sd_growth <- exp(LsigGrow) * mn_growth
-            Pmoult <- plogis(Pmoult_par[1] + Pmoult_par[2] * lbin[fm])
+            Pmoult    <- Pmoult_fn(ts, fm)
             probs <- rep(0, nlbin)
             for (k in fm:(nlbin - 1)) {
               probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
@@ -361,29 +421,28 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     }
   }
 
-  # gseq/sigGrowvec is a lookup table plotfit() uses (via approx()) to shade
-  # the growth-spread ribbon in panel d.
   gseq <- seq(0, 5, 0.1)
   sigGrowvec <- exp(LsigGrow) * gseq
 
-  # Calculate penalties
-  PenSigError <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
-  PenMerrorRel <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
-  PenMerrorRec <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
-  smooth_penalty <- smoother * sum((growthmat[goodts, 2:nlbin] - growthmat[goodts, 1:(nlbin - 1)])^2)
-  drift_penalty <- 0.1 * sum(log(1 + exp(-(growth_vecpar + 10))))
+  ## --- Penalties ------------------------------------------------------------
+  PenSigError    <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
+  PenMerrorRel   <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
+  PenMerrorRec   <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
+  smooth_penalty <- smoother * sum((growthmat[goodts, 2:nlbin] -
+                                      growthmat[goodts, 1:(nlbin - 1)])^2)
+  drift_penalty  <- 0.1 * sum(log(1 + exp(-(growth_vecpar + 10))))
 
-  TLL <- -sum(LL) + PenSigError + PenMerrorRel + PenMerrorRec +
+  TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
     smooth_penalty + drift_penalty
 
   if (TemporalGrowth) {
-    # Ridge penalty on year effects -- see @details for the weight caveat.
     PenS <- 1.0 * sum(S^2)
     TLL <- TLL + PenS
   }
 
-  # Report objects for post-fit examination
+  ## --- Report objects ---------------------------------------------------
   REPORT(LL)
+  REPORT(IdentLL)
   REPORT(lenout)
   REPORT(EstCapLen)
   REPORT(EstRecLen)
@@ -393,9 +452,13 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(MerrorRel)
   REPORT(MerrorRec)
   REPORT(LsigGrow)
-  Pmoult_vec <- plogis(Pmoult_par[1] + Pmoult_par[2] * lbin)
+  Pmoult_vec <- matrix(0, ntsteps, nlbin)
+  for (ns in 1:ntsteps) {
+    for (fm in 1:nlbin) Pmoult_vec[ns, fm] <- Pmoult_fn(ns, fm)
+  }
   REPORT(Pmoult_vec)
   REPORT(Pmoult_par)
+  REPORT(mpy_floor)
   if (TemporalGrowth) REPORT(S)
 
   TLL

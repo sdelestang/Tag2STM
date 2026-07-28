@@ -7,179 +7,96 @@
 growmod(pin, Like = 1, TemporalGrowth = FALSE)
 }
 \arguments{
-\item{pin}{List. Parameter list created by \code{\link{Makepin}}, containing
-initial values for all model parameters including growth parameters,
-the moult-probability hurdle, measurement error terms, and (when
-\code{TemporalGrowth = TRUE}) the year-effect parameters.}
+\item{pin}{List. Parameter list from \code{Makepin}.}
 
-\item{Like}{Integer. Likelihood form to use for comparing projected and
-observed length distributions. \code{1} (default): asymmetric KL
-divergence; \code{2}: symmetric KL divergence. This is a structural
-switch passed via closure, not differentiated by RTMB.}
+\item{Like}{Integer, 1 (default, asymmetric KL) or 2 (symmetric KL).
+Structural switch, plain data at trace time.}
 
-\item{TemporalGrowth}{Logical. If \code{TRUE}, fits year-specific
-proportional growth scaling (the model previously implemented as a
-separate function; if \code{FALSE} (default), fits
-the base model with a single average STM and no interannual variation.
-This is also a structural switch, decided once when \code{MakeADFun}
-traces the function -- like \code{Like}, it is plain data at trace time,
-not derived from any AD parameter, so branching on it is safe (unlike,
-e.g., \code{min()}/\code{max()} on an AD-derived quantity -- see the
-year-effect section below for why that distinction matters here).
-\code{pin} must be built with the matching
-\code{Makepin(TemporalGrowth = ...)} value (\code{Sraw} is only present
-in \code{pin} when \code{TRUE}); \code{make_growmod_obj} checks this
-automatically via \code{attr(pin, "TemporalGrowth")}.}
+\item{TemporalGrowth}{Logical. Structural switch, as before.}
 }
 \value{
-Scalar total negative log-likelihood. \code{REPORT()} objects:
-\describe{
-\item{LL}{Vector of individual log-likelihoods for each tagged animal}
-\item{lenout}{Matrix, \code{(30*ntsteps) x nlbin} -- average growth
-trajectory (S=0 when \code{TemporalGrowth = TRUE}), for visualizing
-growth trajectories}
-\item{EstCapLen}{Observed recapture length distributions (with
-measurement error) for each animal}
-\item{EstRecLen}{Model-projected length distributions for each animal}
-\item{stm}{Size transition matrices: \code{nlbin x nlbin x ntsteps} when
-\code{TemporalGrowth = FALSE}, or \code{nlbin x nlbin x ntsteps x
-    nyears} when \code{TRUE}}
-\item{sigGrowvec}{Growth SDs as a function of growth increment, evaluated
-at \code{seq(0, 5, 0.1)} (used by \code{plotfit}'s ribbon)}
-\item{growthmat}{Matrix of mean growth by length bin and time step}
-\item{MerrorRel}, \item{MerrorRec}{Estimated individual measurement errors}
-\item{LsigGrow}{The fitted scalar log-CV parameter}
-\item{Pmoult_vec}{P(moult) at each size bin, for diagnostic plotting}
-\item{Pmoult_par}{The raw fitted logistic coefficients (intercept, slope),
-reported so \code{build_lenout_envelope} can use the actual fitted
-hurdle rather than falling back to an "always moult" default}
-\item{S}{Only present when \code{TemporalGrowth = TRUE}: length
-\code{nyears}, the fitted year effects (sums to 0 among supported years)}
-}
+Scalar total negative log-likelihood. Key \code{REPORT()}
+objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
+(per-animal identification log-densities, 0 where an animal had no
+\code{goodts} opportunity), \code{lenout}, \code{EstCapLen},
+\code{EstRecLen}, \code{stm}, \code{sigGrowvec}, \code{growthmat},
+\code{MerrorRel}, \code{MerrorRec}, \code{LsigGrow}, \code{Pmoult_vec},
+\code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
+row, for diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
 }
 \description{
 Estimates flexible, data-driven growth patterns from tag-recapture data by
 constructing size transition matrices (STMs) that describe how animals grow
 from one length bin to another over time. Includes a moult-probability
-hurdle (see Details) and, optionally, year-specific proportional growth
-scaling. The resulting STMs can be directly incorporated into length-based
-stock assessment models.
+hurdle with an optional biological minimum-moults-per-year floor, an
+internal identification mixture (replacing the old external auxiliary
+data machinery), and, optionally, year-specific proportional growth
+scaling.
 }
 \details{
-\strong{Model Overview:}
+\strong{CHANGES FROM THE PREVIOUS VERSION}
 
-This function implements a tag-recapture growth model that:
-\enumerate{
-\item Constructs size transition matrices (STMs) from flexible growth parameters
-\item Projects each tagged animal forward through time using appropriate STMs
-\item Compares projected size distributions with observed recapture lengths
-\item Maximizes a multinomial-like likelihood weighted by release cohort sizes
-}
+\strong{1. Minimum-moults-per-year floor (\code{datain$mpy}).} Some
+species have a known biological lower bound on annual moult frequency --
+e.g. large western rock lobster must moult at least once a year
+(\code{mpy = 1}) even though there are two \code{goodts} moulting windows
+each capable of falling as low as 0.5; deep-sea crab may moult as rarely
+as once every three years (\code{mpy = 1/3}) with a single annual
+\code{goodts}; species with a terminal moult have no such floor
+(\code{mpy = 0}, the default, reproduces the original unclamped
+logistic exactly).
 
-\strong{Required Data (from \code{datain}):}
+The floor is enforced by construction, not by a penalty: each
+\code{goodts} row's logistic is rescaled to asymptote at
+\code{mpy_floor} (as size grows large) rather than at 0, so
+\code{Pmoult(ns, fm) = mpy_floor + (1 - mpy_floor) * plogis(...)}, always
+\code{>= mpy_floor}, with no comparison/branch on an AD-derived quantity
+anywhere.
 
-\itemize{
-\item \code{Rlcl}, \code{Rccl}: release/recapture lengths (carapace length)
-\item \code{tsteps}: time at liberty (number of time steps) for each animal
-\item \code{relts}: release time step (within-season position) for each animal
-\item \code{nlob}: number of lobsters/crabs in each release cohort (for weighting)
-\item \code{lbin}, \code{lbinL}, \code{lbinU}, \code{nlbin}: length bin structure
-\item \code{ntsteps}, \code{goodts}: time step structure and which have adequate data
-\item \code{smoother}: smoothness penalty weight for growth parameters
-\item When \code{TemporalGrowth = TRUE}, additionally: \code{nyears},
-\code{relyr} (release year, 1-based index into 1..nyears -- NOT a raw
-calendar year, see \code{\link{add_year_support}}), and
-\code{yr_supported} (logical, from \code{\link{add_year_support}}).
-}
+How \code{mpy} is allocated across the year's \code{goodts} seasons is
+an ESTIMATED parameter (\code{mpy_split_par}, present in \code{pin} only
+when \code{length(goodts) > 1} -- see \code{Makepin}), not a preset
+\code{datain} vector: a species may have one moulting window collapsing
+toward 0 while another stays near 1 (rather than an even split), and
+which window gets which end is generally not known in advance. The
+split is built via a softmax over \code{mpy_split_par} with the last
+\code{goodts} season's log-odds anchored at 0 for identifiability
+(arbitrary anchor choice, unbiased since the parameter starts at 0 --
+an exactly even split -- and is free to move either direction). With a
+single annual \code{goodts} (e.g. deep-sea crab) there is nothing to
+split and \code{mpy} goes entirely to that one season, same as before.
 
-\strong{Growth Model Structure:}
+A guard at the top of the function checks \code{mpy <= 1} (plain data,
+safe to compare) and stops with an informative error otherwise, since a
+single season's floor can now carry the entire \code{mpy} value (e.g.
+fully allocated by the fitted split) and so cannot itself exceed 1.
 
-Growth is modeled using a random walk approach: \code{growth_vecpar} are
-reshaped into a matrix with \code{nlbin} columns and \code{ntsteps} rows;
-for each \code{goodts} time step, parameters are converted to cumulative
-growth starting from the largest length bin (minimal growth) and adding
-increments for each smaller bin. A smoothness penalty encourages adjacent
-length bins to have similar growth.
+\strong{2. Internal identification mixture (replaces \code{make_aux_data}/
+\code{make_aux2_data} entirely).} The old two-step design (external
+preprocessing building \code{aux_*}/\code{aux2_*} data blocks, restricted
+to single- or Kmax-capped multi-opportunity records) is gone. Instead,
+for every animal, the same \code{tstepsvec} already built for STM
+chaining is reused directly to run a moment-matched forward recursion
+over its \code{K} \code{goodts} opportunities (arbitrary \code{K}, no
+cap), giving an exact Poisson-binomial mixture over moult COUNT with a
+moment-matched Gaussian per count bucket (exact for animals with
+\code{K <= 1}, an approximation for \code{K > 1} when growth means vary
+across seasons within the record -- see \code{ident_mixture_ll} below).
+Controlled by \code{datain$ident_wt} (default 0, reproduces a pure
+marginal fit exactly -- fit at 0 first to confirm plumbing, then > 0).
 
-\strong{Growth Variance -- Proportional (CV-type), Not Saturating:}
+\code{datain$use_individual_error} (default \code{FALSE}) switches
+between the population-level \code{sqrt(2)*sigError} measurement-error
+term (as before) and a version using each animal's own fitted
+\code{MerrorRel}/\code{MerrorRec}. The latter couples this
+identification term to the same latent random effects the main
+likelihood already fits -- compare both before trusting \code{TRUE}.
 
-\code{sd_growth = exp(LsigGrow) * mn_growth} -- growth spread is directly
-proportional to mean growth increment at each size/season, tapering to
-near-zero as growth itself tapers toward zero (e.g. near maximum size).
-\code{LsigGrow} is a single scalar (log coefficient of variation), not a
-2-parameter saturating-ceiling curve as in an earlier version of this
-model -- stratifying raw single-moult recapture increments by release size
-showed both mean AND sd shrinking together toward the largest size
-classes, which a saturating-ceiling formula could not reproduce (it
-predicts close to the same near-maximal sd regardless of mn_growth once
-past a small threshold).
-
-\strong{Moult-Probability Hurdle:}
-
-Raw single-timestep recapture increments showed ~65\% essentially zero
-growth -- not a tail of one distribution but a genuinely separate "did not
-moult" outcome (consistent with episodic moulting rather than continuous
-growth). Each STM column is therefore a mixture: with probability
-\code{1 - Pmoult(fm)}, the animal stays exactly in bin \code{fm} (no
-moult); with probability \code{Pmoult(fm)}, growth follows the
-proportional-CV distribution above, CONDITIONAL on a moult having
-occurred. \code{Pmoult(fm) = plogis(Pmoult_par[1] + Pmoult_par[2] *
-lbin[fm])} -- a simple 2-parameter logistic in size, not a flexible
-per-bin parameter like \code{growth_vecpar}, since the observed size trend
-(moult fraction ~0.41 at small sizes to ~0.25 at large sizes) was smooth
-and didn't obviously need bin-level flexibility. This hurdle applies
-identically whether or not \code{TemporalGrowth} is used. \code{Pmoult} is
-currently constant across years and seasons -- worth revisiting if
-diagnostics suggest moult probability itself varies by year, not just
-growth-given-moult.
-
-\strong{Year-Specific Growth Scaling (\code{TemporalGrowth = TRUE} only):}
-
-Each year t gets a multiplicative scalar \code{exp(S_t)} applied to the
-mean growth increment (and hence, through the proportional formula above,
-to sd_growth too) at every length bin and season. \code{S_t} is on the log
-scale (\code{S_t = 0} => average growth). This is deliberately NOT an
-additive \code{(1 + S_t)} scaling: that form has a hard wall at
-\code{S_t = -1} where \code{mn_growth} hits exactly 0 and \code{sd_growth}
-goes negative just past it (\code{pnorm()} returns \code{NaN}); a profile
-likelihood run against that parameterization showed the objective still
-improving monotonically all the way to the wall with no turnover -- i.e.
-the optimizer was running into an undefined region, not converging on a
-genuine minimum. \code{exp(S_t)} is strictly positive for any finite
-\code{S_t}, so "very slow growth" is expressed smoothly as
-\code{S_t -> -infinity}, with no wall to hit.
-
-\code{S} is constrained to sum to zero on the log scale, among
-\strong{supported} years only (see \code{\link{add_year_support}}):
-unsupported years are fixed at exactly \code{S = 0} rather than
-participating in the sum-to-zero constraint, where an unsupported year
-could otherwise be forced to an arbitrary value by construction (this bit
-the very first version of this model, in which every unsupported year
-collapsed onto whatever the automatically-derived last position required,
-regardless of whether that position happened to be the unsupported one).
-
-Because \code{S} is derived from the parameter \code{Sraw}, it is an AD
-type while the model is being traced -- \code{min()}/\code{max()} (or any
-comparison) on \code{S} inside this function would raise "Comparison is
-generally unsafe for AD types". The worst-year/best-year scenario envelope
-is therefore NOT built here; it is a separate post-fit step, in plain R,
-from \code{mod$rep()}'s output where \code{S} is already numeric -- see
-\code{\link{build_lenout_envelope}}.
-
-\strong{Design choices worth revisiting:}
-\itemize{
-\item \code{PenS} (only when \code{TemporalGrowth = TRUE}) is a ridge
-penalty (weight 1.0) shrinking supported years' \code{S} toward zero
-(it also sums over hard-fixed unsupported years, but those contribute
-exactly 0 regardless). The weight is arbitrary and should be tuned or
-profiled, not left at 1.0 by default.
-\item Animals whose liberty period runs past \code{nyears} have their
-internal year index clamped to \code{nyears} rather than erroring --
-check this is the behaviour you want.
-}
-}
-\seealso{
-\code{\link{Makepin}}, \code{\link{Makemap}},
-\code{\link{make_growmod_obj}}, \code{\link{add_year_support}},
-\code{\link{build_lenout_envelope}}
+All \code{aux_*} REPORT objects (\code{AuxLL}, \code{aux_pmoult},
+\code{aux_post}) are gone; downstream code (\code{plotfit()} etc.) that
+referenced them will need updating to use \code{IdentLL} instead. There
+is no longer a "double counting" question or a \code{drop_from_main} /
+seasonal-selection caveat to manage, since every animal contributes to
+\code{IdentLL} through the same one mechanism regardless of liberty
+length.
 }

@@ -141,23 +141,31 @@ plotfit <- function(datIn = tdat, mout = NULL) {
   ## P(moult)-by-size on a calibrated secondary axis (different units/scale
   ## to increment, so NOT plotted on the shared raw axis) ---
   growthmat <- out$growthmat[goodts, ]
+
+  ## Pmoult_vec now genuinely varies by season as well as size (Makemap's
+  ## default frees each goodts row of Pmoult_par independently -- see
+  ## growmod/Makemap changes), so it must be subset and aligned row-by-row
+  ## with growthmat exactly the same way, not broadcast with rep().
+  pmoultmat <- out$Pmoult_vec[goodts, , drop = FALSE]
+
   if (is.matrix(growthmat)) {
     gdf <- do.call(rbind, lapply(1:nrow(growthmat), function(i)
-      data.frame(lbin = lbin, increment = growthmat[i, ], ts = factor(i))))
+      data.frame(lbin = lbin, increment = growthmat[i, ],
+                 Pmoult = pmoultmat[i, ], ts = factor(i))))
   } else {
-    gdf <- data.frame(lbin = lbin, increment = growthmat, ts = factor(1))
+    gdf <- data.frame(lbin = lbin, increment = growthmat,
+                      Pmoult = as.numeric(pmoultmat), ts = factor(1))
   }
   # sd_growth is now proportional (sd = exp(LsigGrow) * increment), and
   # sigGrowvec = exp(LsigGrow) * gseq is exactly linear -- so this
   # interpolation is now an exact readout, not an approximation.
   gdf$sd <- approx(x = seq(0, 5, 0.1), y = out$sigGrowvec, xout = gdf$increment, rule = 2)$y
 
-  # Pmoult_vec is a function of size only (not season), so the same nlbin
-  # values repeat once per ts block in gdf's row order.
-  gdf$Pmoult <- rep(out$Pmoult_vec, times = length(unique(gdf$ts)))
+  # (old `gdf$Pmoult <- rep(out$Pmoult_vec, times = length(unique(gdf$ts)))`
+  # line removed -- Pmoult is now built correctly above, aligned per season.)
 
   # Rescale P(moult) [0,1] onto the ribbon's own [min, max] range, rather than
-  # an arbitrary [0, some_constant] -- this makes the dashed P(moult) line
+  # an arbitrary [0, some_constant] -- this makes the dashed P(moult) line(s)
   # occupy exactly the same vertical space as the ribbon, and the secondary
   # axis (0 to 1) lines up directly with where the ribbon actually sits,
   # instead of spanning most of an axis the ribbon itself only occupies a
@@ -170,7 +178,14 @@ plotfit <- function(datIn = tdat, mout = NULL) {
     geom_ribbon(aes(ymin = pmax(increment - sd, 0), ymax = increment + sd, fill = ts),
                 alpha = 0.15, colour = NA) +
     geom_line(aes(y = increment, colour = ts), linewidth = 0.8) +
-    geom_line(aes(y = ribbon_lo + Pmoult * ribbon_range), colour = "black", linetype = "dashed", linewidth = 0.7) +
+    # group = ts added: with season-varying Pmoult, this now draws one dashed
+    # line PER SEASON rather than connecting points across seasons in raw
+    # x-order (which produced a jagged, meaningless line once Pmoult stopped
+    # being constant across ts). colour still fixed at black/dashed so the
+    # moult-probability line stays visually distinct from the growth curves
+    # above, which already use the viridis palette for colour = ts.
+    geom_line(aes(y = ribbon_lo + Pmoult * ribbon_range, group = ts),
+              colour = "black", linetype = "dashed", linewidth = 0.7) +
     scale_colour_viridis_d(option = "plasma") +
     scale_fill_viridis_d(option = "plasma") +
     guides(colour = "none", fill = "none") +
@@ -178,9 +193,10 @@ plotfit <- function(datIn = tdat, mout = NULL) {
       name = "Increment",
       sec.axis = sec_axis(~ (. - ribbon_lo) / ribbon_range, name = "P(moult)")
     ) +
-    labs(x = "Size", title = "Growth/Moult (dashed = P(moult))") +
+    labs(x = "Size", title = "Growth/Moult (dashed = P(moult), one line per season)") +
     theme_bw() +
     theme(plot.tag = element_text(face = "bold"), plot.title = element_text(hjust = 0.5))
+
 
   ## --- Panel e: year effects (TemporalGrowth = TRUE), falling back to growth-spread plot (TemporalGrowth = FALSE) ---
   has_year_effects <- !is.null(out$S)
