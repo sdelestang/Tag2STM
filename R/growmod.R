@@ -107,6 +107,11 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   if (is.null(datain$ident_wt))            datain$ident_wt <- 0
   if (is.null(datain$use_individual_error)) datain$use_individual_error <- FALSE
   if (is.null(datain$n_pmoult1))            datain$n_pmoult1 <- 1
+  ## Tagging-induced moult suppression. Both plain data / structural
+  ## switches, decided at trace time. Defaults reproduce the previous
+  ## behaviour exactly (no suppression, no extra parameters, no extra STMs).
+  if (is.null(datain$suppress))            datain$suppress <- FALSE
+  if (is.null(datain$suppress_compensate)) datain$suppress_compensate <- TRUE
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -200,6 +205,49 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] * lbin[fm])
   }
 
+  ## --- Tagging-induced moult suppression ---------------------------------
+  ## Handling and tag insertion can delay an animal's FIRST post-release
+  ## moult; this is documented in other crustaceans. In the deep-sea crab
+  ## data it showed up as growth of 2.32 mm per timestep among animals with
+  ## exactly one moult opportunity, against ~5.5 mm at two and three
+  ## opportunities -- i.e. roughly 58% of the first-period moult missing,
+  ## while the model matched the longer-liberty animals well.
+  ##
+  ## suppress in (0, 1) multiplies Pmoult in each animal's FIRST goodts
+  ## opportunity after release. Note this deliberately overrides BOTH the
+  ## n_pmoult1 hard-fix (a tagged juvenile is not certain to moult) and the
+  ## mpy floor (the floor is a biological minimum for an untagged animal,
+  ## which a freshly tagged one may legitimately fall below).
+  ##
+  ## DELAY, NOT LOSS. Cumulative growth at two opportunities was ~2x the
+  ## per-opportunity rate, so the suppressed moult appears to happen late
+  ## rather than never. A bare multiplier would therefore over-penalise
+  ## longer-liberty animals, so comp in (0, 1) adds back part of the
+  ## deferred moult in the SECOND opportunity:
+  ##
+  ##   P2 = P + (1 - P) * comp * (1 - suppress)
+  ##
+  ## which is bounded above by 1 by construction (no clamping, hence no
+  ## comparison on an AD type), reduces to P when suppress = 1 (nothing
+  ## suppressed, nothing to defer), and reaches 1 only in the limit of
+  ## total suppression fully compensated. It cannot exactly offset the
+  ## deferral at every size -- exact offset needs comp = P/(1-P), which is
+  ## size-dependent -- so comp is estimated and finds a compromise.
+  ##
+  ## Set datain$suppress_compensate = FALSE to test pure loss instead.
+  if (suppress) {
+    suppress_p <- plogis(suppress_par)
+    comp_p     <- if (suppress_compensate) plogis(comp_par) else 0
+
+    Pmoult_first_fn <- function(ns, fm) {
+      suppress_p * Pmoult_fn(ns, fm)
+    }
+    Pmoult_second_fn <- function(ns, fm) {
+      P <- Pmoult_fn(ns, fm)
+      P + (1 - P) * comp_p * (1 - suppress_p)
+    }
+  }
+
   growth_vecmat <- matrix(growth_vecpar, ncol = nlbin, nrow = ntsteps, byrow = TRUE)
 
   for (ns in goodts) {
@@ -212,13 +260,41 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   }
 
   ## --- Build STM(s) -------------------------------------------------------
-  if (TemporalGrowth) {
-    for (yr in 1:nyears) {
+  ## Factored into a helper taking the Pmoult function to use, so the normal
+  ## / suppressed / compensated arrays are built by identical code and
+  ## cannot drift apart. (Divergence between two hand-maintained copies of
+  ## this construction is exactly what produced a flat growth trajectory in
+  ## build_lenout_envelope() previously.)
+  make_stm <- function(pm_fn) {
+    if (TemporalGrowth) {
+      A <- array(0, c(nlbin, nlbin, ntsteps, nyears))
+      for (yr in 1:nyears) {
+        for (ns in goodts) {
+          for (fm in 1:nlbin) {
+            mn_growth <- growthmat[ns, fm] * exp(S[yr])
+            sd_growth <- exp(LsigGrow) * mn_growth
+            Pmoult    <- pm_fn(ns, fm)
+
+            probs <- rep(0, nlbin)
+            for (k in fm:(nlbin - 1)) {
+              probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
+                pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
+            }
+            probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
+            probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
+
+            A[fm:nlbin, fm, ns, yr] <- Pmoult * probs_norm
+            A[fm, fm, ns, yr] <- A[fm, fm, ns, yr] + (1 - Pmoult)
+          }
+        }
+      }
+    } else {
+      A <- array(0, c(nlbin, nlbin, ntsteps))
       for (ns in goodts) {
         for (fm in 1:nlbin) {
-          mn_growth <- growthmat[ns, fm] * exp(S[yr])
+          mn_growth <- growthmat[ns, fm]
           sd_growth <- exp(LsigGrow) * mn_growth
-          Pmoult    <- Pmoult_fn(ns, fm)
+          Pmoult    <- pm_fn(ns, fm)
 
           probs <- rep(0, nlbin)
           for (k in fm:(nlbin - 1)) {
@@ -228,30 +304,21 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
           probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
           probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
 
-          stm[fm:nlbin, fm, ns, yr] <- Pmoult * probs_norm
-          stm[fm, fm, ns, yr] <- stm[fm, fm, ns, yr] + (1 - Pmoult)
+          A[fm:nlbin, fm, ns] <- Pmoult * probs_norm
+          A[fm, fm, ns] <- A[fm, fm, ns] + (1 - Pmoult)
         }
       }
     }
-  } else {
-    for (ns in goodts) {
-      for (fm in 1:nlbin) {
-        mn_growth <- growthmat[ns, fm]
-        sd_growth <- exp(LsigGrow) * mn_growth
-        Pmoult    <- Pmoult_fn(ns, fm)
+    A
+  }
 
-        probs <- rep(0, nlbin)
-        for (k in fm:(nlbin - 1)) {
-          probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
-            pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
-        }
-        probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
-        probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
-
-        stm[fm:nlbin, fm, ns] <- Pmoult * probs_norm
-        stm[fm, fm, ns] <- stm[fm, fm, ns] + (1 - Pmoult)
-      }
-    }
+  ## stm is the ordinary (untagged / post-recovery) transition matrix and is
+  ## what gets REPORTed -- downstream consumers (ClipSTM, Vb2STM, the stock
+  ## assessment) want the biological STM, not the tagging-affected one.
+  stm <- make_stm(Pmoult_fn)
+  if (suppress) {
+    stm_first <- make_stm(Pmoult_first_fn)
+    if (suppress_compensate) stm_second <- make_stm(Pmoult_second_fn)
   }
 
   ## --- Internal identification mixture (local function) -------------------
@@ -269,7 +336,19 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     vr_k <- rep(0, K)
     for (k in 1:K) {
       ns_k <- ns_seq[k]
-      p_k[k] <- Pmoult_fn(ns_k, fm)
+      ## ns_seq is in chronological order, so k indexes the animal's 1st,
+      ## 2nd, ... goodts opportunity since release -- exactly what the
+      ## suppression/compensation applies to. k is a plain loop index, so
+      ## these comparisons are safe.
+      p_k[k] <- if (!suppress) {
+        Pmoult_fn(ns_k, fm)
+      } else if (k == 1) {
+        Pmoult_first_fn(ns_k, fm)
+      } else if (k == 2 && suppress_compensate) {
+        Pmoult_second_fn(ns_k, fm)
+      } else {
+        Pmoult_fn(ns_k, fm)
+      }
       mg <- growthmat[ns_k, fm]
       if (TemporalGrowth) mg <- mg * exp(S[yr_seq[k]])
       mu_k[k] <- mg
@@ -359,10 +438,29 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
 
     ## --- STM chaining (unchanged logic, reusing tstepsvec/yearvec above) ---
     if (length(tstepsvec) > 0) {
+      ## good_count tracks which goodts opportunity since RELEASE this is
+      ## (1st, 2nd, ...), which is what suppression applies to -- not the
+      ## raw timestep index. This is why it generalises to the two-window
+      ## lobster configuration for free: an animal released just after the
+      ## first window has its first opportunity in the second window, and
+      ## that is the one suppressed. good_count is a plain integer.
+      good_count <- 0
       for (ts in 1:length(tstepsvec)) {
         if (tstepsvec[ts] %in% goodts) {
-          tmpstm <- if (TemporalGrowth) stm[, , tstepsvec[ts], yearvec[ts]]
-                    else stm[, , tstepsvec[ts]]
+          good_count <- good_count + 1
+          variant <- if (!suppress) 0L
+                     else if (good_count == 1) 1L
+                     else if (good_count == 2 && suppress_compensate) 2L
+                     else 0L
+          tmpstm <- if (TemporalGrowth) {
+            if (variant == 1L)      stm_first[,  , tstepsvec[ts], yearvec[ts]]
+            else if (variant == 2L) stm_second[, , tstepsvec[ts], yearvec[ts]]
+            else                    stm[,        , tstepsvec[ts], yearvec[ts]]
+          } else {
+            if (variant == 1L)      stm_first[,  , tstepsvec[ts]]
+            else if (variant == 2L) stm_second[, , tstepsvec[ts]]
+            else                    stm[,        , tstepsvec[ts]]
+          }
           lens <- tmpstm %*% lens
         }
       }
@@ -459,6 +557,25 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(Pmoult_vec)
   REPORT(Pmoult_par)
   REPORT(mpy_floor)
+  if (suppress) {
+    ## suppress_p: multiplier on Pmoult in the first goodts opportunity
+    ## after release (1 = no suppression, 0 = complete).
+    ## comp_p: fraction of the deferred moult recovered in the second.
+    ## Pmoult_first_vec / Pmoult_second_vec: the realised curves, directly
+    ## comparable with Pmoult_vec for plotting.
+    REPORT(suppress_p)
+    REPORT(comp_p)
+    Pmoult_first_vec  <- matrix(0, ntsteps, nlbin)
+    Pmoult_second_vec <- matrix(0, ntsteps, nlbin)
+    for (ns in 1:ntsteps) {
+      for (fm in 1:nlbin) {
+        Pmoult_first_vec[ns, fm]  <- Pmoult_first_fn(ns, fm)
+        Pmoult_second_vec[ns, fm] <- Pmoult_second_fn(ns, fm)
+      }
+    }
+    REPORT(Pmoult_first_vec)
+    REPORT(Pmoult_second_vec)
+  }
   if (TemporalGrowth) REPORT(S)
 
   TLL

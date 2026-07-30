@@ -6,11 +6,11 @@
 \usage{
 Makepin(
   avgrowth = 2,
-  LsigError = log(2),
+  LsigError = NULL,
   LsigGrow = log(2),
   LMerrorRelsigma = 0,
   LMerrorRecsigma = 0,
-  TemporalGrowth = FALSE
+  TemporalGrowth = NULL
 )
 }
 \arguments{

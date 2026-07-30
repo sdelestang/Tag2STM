@@ -7,40 +7,53 @@
 build_lenout_envelope(rep_out, datain)
 }
 \arguments{
-\item{rep_out}{List. The result of \code{mod$rep()} for a fitted
-\code{growmod(..., TemporalGrowth = TRUE)} model. Must contain \code{S}, \code{growthmat}, and
-\code{LsigGrow} (all reported by the current version of
-\code{growmod(..., TemporalGrowth = TRUE)}).}
+\item{rep_out}{List. Result of \code{mod$rep()} (or
+\code{mod$report(mout$par)}) for a fitted
+\code{growmod(..., TemporalGrowth = TRUE)} model. Must contain
+\code{S}, \code{growthmat}, \code{LsigGrow}, \code{Pmoult_par}, and
+\code{mpy_floor}.}
 
-\item{datain}{List. The same \code{datain} object used to fit the model —
-needed for \code{nlbin}, \code{ntsteps}, \code{goodts}, \code{lbin},
-\code{lbinL}, \code{lbinU}.}
+\item{datain}{List. The same \code{datain} used to fit -- needs
+\code{nlbin}, \code{ntsteps}, \code{goodts}, \code{lbin}, \code{lbinL},
+\code{lbinU}, and (optionally) \code{n_pmoult1}.}
 }
 \value{
-A 3D array, \code{(30*ntsteps) x nlbin x 3}, matching the shape
-the earlier internal \code{lenout_scenarios} object had. The third
-dimension is (1) S=0 average year, (2) worst fitted year (min S),
-(3) best fitted year (max S).
+A 3D array, \code{(30*ntsteps) x nlbin x 3}. Third dimension is
+(1) S=0 average year, (2) worst fitted year (min S), (3) best fitted
+year (max S). Returns \code{NULL} if \code{rep_out$S} is absent (plain
+\code{growmod} fit), so callers such as \code{plotfit} degrade to a
+single-trajectory plot.
 }
 \description{
-Companion function to \code{\link{growmod}}. Reconstructs the same
-\code{scenario_S <- c(0, min(S), max(S))} envelope that an earlier version
-of \code{growmod(..., TemporalGrowth = TRUE)} tried to build internally — but that approach fails
-inside RTMB's AD-traced objective function, because \code{S} is derived
-from the estimated parameter \code{Sraw} and is therefore an AD type while
-the model is being fit; \code{min()}/\code{max()} require comparisons,
-and RTMB raises "Comparison is generally unsafe for AD types" for any
-comparison on an AD value. This function instead runs entirely on the
-plain numeric output of \code{mod$rep()}, taken \emph{after} fitting is
-complete — at that point \code{S}, \code{growthmat}, etc. are ordinary
-doubles, and \code{min()}/\code{max()} are unproblematic.
+Companion function to \code{\link{growmod}}. Reconstructs the
+\code{scenario_S <- c(0, min(S), max(S))} envelope that cannot be built
+inside RTMB's AD-traced objective (\code{min()}/\code{max()} on \code{S},
+derived from the estimated \code{Sraw}, are comparisons on an AD type).
+This runs entirely on the plain numeric output of \code{mod$rep()} taken
+after fitting, where those operations are unproblematic.
 }
-\details{
-If \code{rep_out$S} is \code{NULL} (i.e. the fit was a plain
-\code{growmod}, not \code{growmod(..., TemporalGrowth = TRUE)}), this function returns \code{NULL}
-rather than erroring, so callers (e.g. \code{plotfit}) can check for that
-and fall back to a single-trajectory plot.
+\section{Keeping Pmoult in sync with growmod}{
+
+This function reconstructs STMs itself rather than reusing
+\code{growmod}'s, so its Pmoult construction MUST mirror
+\code{growmod}'s \code{Pmoult_fn} exactly. The previous version did not:
+it used a bare \code{plogis(Pmoult_par[1] + Pmoult_par[2] * lbin[fm])},
+predating both the \code{mpy} floor and the \code{n_pmoult1} hard-fix,
+and indexed \code{Pmoult_par} as a flat vector rather than the
+\code{ntsteps x 2} matrix it now is. With a fitted logistic whose
+midpoint falls below the smallest length bin -- which is exactly what
+happens when the \code{mpy} floor is binding, since the logistic
+collapses and the floor carries all the probability -- that stale
+formula returned Pmoult ~ 0 at every bin, so nothing ever moulted and
+the whole envelope came out flat at the first bin for all 30 years.
+The flat-vector indexing also happened to work only at
+\code{ntsteps = 1}; with more than one season it silently read the
+wrong elements.
+
+If \code{Pmoult_fn} in \code{growmod} changes again, this block must
+change with it.
 }
+
 \seealso{
 \code{\link{growmod}}
 }

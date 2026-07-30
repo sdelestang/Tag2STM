@@ -4,7 +4,13 @@
 \alias{Makemap}
 \title{Create Parameter Mapping for Selective Time Step Fitting}
 \usage{
-Makemap(pin, re = FALSE, estTemporalGrowth = TRUE, Pmoult_shared = FALSE)
+Makemap(
+  pin,
+  re = FALSE,
+  estTemporalGrowth = TRUE,
+  Pmoult_shared = FALSE,
+  estSuppress = TRUE
+)
 }
 \arguments{
 \item{pin}{List, from \code{Makepin}.}

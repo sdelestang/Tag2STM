@@ -58,12 +58,14 @@
 #'
 #' @export
 Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
-                     Pmoult_shared = FALSE) {
+                     Pmoult_shared = FALSE, estSuppress = TRUE) {
   pnames <- names(pin)[!(grepl('sig', names(pin), ignore.case = TRUE) |
                            grepl('error', names(pin), ignore.case = TRUE) |
                            names(pin) == 'Sraw' |
                            names(pin) == 'Pmoult_par' |
-                           names(pin) == 'mpy_split_par')]
+                           names(pin) == 'mpy_split_par' |
+                           names(pin) == 'suppress_par' |
+                           names(pin) == 'comp_par')]
 
   turnon <- 1:(datain$ntsteps * datain$nlbin)
   turnon[!(rep(1:(datain$ntsteps), each = datain$nlbin)) %in% datain$goodts] <- NA
@@ -130,6 +132,20 @@ Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
       map$mpy_split_par <- rep(factor(NA), length(pin$mpy_split_par))
     }
     # else: not added to map, so estimated freely (default)
+  }
+
+  ## --- Suppression parameters (new) ---------------------------------------
+  ## Free by default when present -- the whole point is estimating how much
+  ## of the first post-release moult is lost. Set estSuppress = FALSE to fix
+  ## them at their Makepin starting values, which is the right way to run a
+  ## likelihood comparison against the no-suppression case (fit both, compare
+  ## Pmoult and the growth curve; the objective is not a true log-likelihood
+  ## so treat any difference as indicative rather than as a test statistic).
+  if ('suppress_par' %in% names(pin) && !estSuppress) {
+    map$suppress_par <- factor(NA)
+  }
+  if ('comp_par' %in% names(pin) && !estSuppress) {
+    map$comp_par <- factor(NA)
   }
 
   return(map)

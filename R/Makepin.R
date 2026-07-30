@@ -42,21 +42,34 @@
 #' @seealso \code{\link{growmod}}, \code{\link{Makemap}}
 #' @export
 Makepin <- function(avgrowth = 2,
-                    LsigError = log(2),
+                    LsigError = NULL,
                     LsigGrow = log(2),
                     LMerrorRelsigma = 0,
                     LMerrorRecsigma = 0,
-                    TemporalGrowth = FALSE) {
-  nlbin   <- length(bins$lbin)
+                    TemporalGrowth = NULL) {
+  # Both now default to whatever Makedata() stored in datain, so they are
+  # set once rather than passed separately to Makedata and Makepin (where
+  # they could disagree). An explicit argument still wins, so existing
+  # calls like Makepin(TemporalGrowth = TRUE) behave as before.
+  if (is.null(TemporalGrowth)) TemporalGrowth <- isTRUE(datain$TemporalGrowth)
+  if (is.null(LsigError)) {
+    LsigError <- if (!is.null(datain$LsigError_init)) datain$LsigError_init else log(2)
+  }
+
+  nlbin   <- length(datain$lbin)
   ntsteps <- datain$ntsteps
+  # Prefer datain$nobs (set by Makedata) over nrow(tdat): the random effects
+  # must be sized to the SAME rows datain was built from, and reading the
+  # global tdat silently breaks if it has been filtered since.
+  nobs <- if (!is.null(datain$nobs)) datain$nobs else nrow(tdat)
 
   pin <- list(
     growth_vecpar = rep(c(rep(log(0.2), nlbin - 1), log(0.01)), ntsteps),
     LsigError = LsigError,
     LsigGrow = LsigGrow,
-    MerrorRel = rep(0, nrow(tdat)),
+    MerrorRel = rep(0, nobs),
     LMerrorRelsigma = LMerrorRelsigma,
-    MerrorRec = rep(0, nrow(tdat)),
+    MerrorRec = rep(0, nobs),
     LMerrorRecsigma = LMerrorRecsigma,
     # ntsteps x 2 matrix -- growmod indexes Pmoult_par[ns, 1]/[ns, 2], so
     # this must be an actual matrix, not a length-2 vector. Every row
@@ -76,6 +89,26 @@ Makepin <- function(avgrowth = 2,
   n_goodts <- length(datain$goodts)
   if (n_goodts > 1) {
     pin$mpy_split_par <- rep(0, n_goodts - 1)
+  }
+
+  # Tagging-induced moult suppression (see growmod). Only present when
+  # datain$suppress is TRUE, and must be present at trace time whenever it
+  # is -- like mpy_split_par, the parameter vector's shape is fixed when
+  # MakeADFun() traces, so this cannot be toggled between fits without
+  # rebuilding.
+  #
+  # suppress_par starts at plogis(-0.4) ~= 0.40, i.e. ~60% of the first
+  # post-release moult suppressed -- the deep-sea crab estimate (2.32 mm
+  # growth at one opportunity vs ~5.5 mm at two or three). It is a starting
+  # value, not a constraint; for a program with no handling effect the fit
+  # should push it toward 1 (suppress_par -> +Inf).
+  #
+  # comp_par starts at 0, i.e. plogis(0) = 0.5, half the deferred moult
+  # recovered in the second opportunity -- deliberately neutral between
+  # "moult lost" and "moult fully deferred".
+  if (isTRUE(datain$suppress)) {
+    pin$suppress_par <- -0.4
+    if (!isFALSE(datain$suppress_compensate)) pin$comp_par <- 0
   }
 
   if (TemporalGrowth) {

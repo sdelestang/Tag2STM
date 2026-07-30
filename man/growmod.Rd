@@ -71,6 +71,13 @@ safe to compare) and stops with an informative error otherwise, since a
 single season's floor can now carry the entire \code{mpy} value (e.g.
 fully allocated by the fitted split) and so cannot itself exceed 1.
 
+\strong{Smallest bins fixed at exactly 1 (\code{datain$n_pmoult1}).}
+The smallest \code{n_pmoult1} length bins (default 1) have Pmoult
+hard-fixed at exactly 1 -- juveniles moult with certainty by
+definition, which a fitted logistic can only ever approach
+asymptotically, never reach exactly. Set to 0 to disable (reverts to
+the plain floor+logistic construction for every bin).
+
 \strong{2. Internal identification mixture (replaces \code{make_aux_data}/
 \code{make_aux2_data} entirely).} The old two-step design (external
 preprocessing building \code{aux_*}/\code{aux2_*} data blocks, restricted
