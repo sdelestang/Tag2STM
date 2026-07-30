@@ -223,16 +223,29 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## per-opportunity rate, so the suppressed moult appears to happen late
   ## rather than never. A bare multiplier would therefore over-penalise
   ## longer-liberty animals, so comp in (0, 1) adds back part of the
-  ## deferred moult in the SECOND opportunity:
+  ## deferred moult in the SECOND opportunity.
   ##
-  ##   P2 = P + (1 - P) * comp * (1 - suppress)
+  ## The deferred animals are those whose period-1 moult was suppressed --
+  ## a fraction (1 - suppress) * P of the population, NOT the (1 - P) who
+  ## were never going to moult anyway. So:
   ##
-  ## which is bounded above by 1 by construction (no clamping, hence no
-  ## comparison on an AD type), reduces to P when suppress = 1 (nothing
-  ## suppressed, nothing to defer), and reaches 1 only in the limit of
-  ## total suppression fully compensated. It cannot exactly offset the
-  ## deferral at every size -- exact offset needs comp = P/(1-P), which is
-  ## size-dependent -- so comp is estimated and finds a compromise.
+  ##   d  = comp * (1 - suppress) * P        # deferred moults arriving now
+  ##   P2 = d + (1 - d) * P
+  ##
+  ## i.e. an animal moults in period 2 if its deferred moult arrives, or
+  ## failing that if it moults normally. This is bounded in (0, 1) by
+  ## construction since d <= P <= 1 (no clamping, hence no comparison on an
+  ## AD type), reduces to P when suppress = 1 or comp = 0, and scales with
+  ## P so that a large animal with a near-zero moult probability gets a
+  ## near-zero compensation.
+  ##
+  ## An earlier version used P2 = P + (1 - P) * comp * (1 - suppress),
+  ## which applied the compensation to the non-moulters instead. With comp
+  ## at its ceiling that gives P2 = 1 - suppress * (1 - P), a floor of
+  ## (1 - suppress) at EVERY size -- so a 199 mm animal with base Pmoult
+  ## 0.002 was assigned a second-period probability of 0.83. It also
+  ## explains why comp pinned at 1: spreading compensation over the wrong
+  ## animals meant more of it was always better.
   ##
   ## Set datain$suppress_compensate = FALSE to test pure loss instead.
   if (suppress) {
@@ -244,7 +257,8 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     }
     Pmoult_second_fn <- function(ns, fm) {
       P <- Pmoult_fn(ns, fm)
-      P + (1 - P) * comp_p * (1 - suppress_p)
+      d <- comp_p * (1 - suppress_p) * P
+      d + (1 - d) * P
     }
   }
 
