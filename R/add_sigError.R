@@ -151,12 +151,20 @@ add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
 
   ## --- Cross-check: zero-opportunity records ------------------------------
   ## Contaminated in the positive tail (see @details), so reported not used.
+  ## Uses the SAME estimator as the main route -- reflection on negatives,
+  ## moment-based -- so the two numbers are comparable. An earlier version
+  ## took the MAD of all zero-opportunity increments, which is not the same
+  ## quantity: that distribution has a spike at exactly zero from whole-mm
+  ## recording, which deflates the MAD, so the cross-check printed a value
+  ## ~30% below the main estimate and looked like a disagreement when there
+  ## was none.
   K0 <- if (!is.null(datain$tsteps)) datain$tsteps == 0 else rep(FALSE, nrow(tdat))
   sig_K0 <- NA_real_
   if (sum(K0, na.rm = TRUE) >= 10) {
     inc0 <- (tdat$rccl - tdat$rlcl)[K0]
     inc0 <- inc0[!is.na(inc0)]
-    sig_K0 <- mad(inc0, center = 0) / sqrt(2)
+    neg0 <- inc0[inc0 < 0]
+    sig_K0 <- if (length(neg0) >= 5) sqrt(mean(neg0^2)) / sqrt(2) else NA_real_
   }
 
   ## --- Prior width = sampling SE on the log scale -------------------------
