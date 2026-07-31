@@ -4,7 +4,14 @@
 \alias{add_sigError}
 \title{Estimate Measurement Error from Tag-Recapture Increments}
 \usage{
-add_sigError(datain, tdat, round_unit = 1, quiet = FALSE, tol_ratio = 1.3)
+add_sigError(
+  datain,
+  tdat,
+  round_unit = 1,
+  quiet = FALSE,
+  outlier_k = 5,
+  max_liberty = 730
+)
 }
 \arguments{
 \item{datain}{A \code{datain} list (from \code{\link{Makedata}}).}
@@ -16,6 +23,22 @@ whole-unit-recorded lengths. Default 1. Used for Sheppard's correction.}
 
 \item{quiet}{Logical, suppress the diagnostic printout. Default
 \code{FALSE}.}
+
+\item{outlier_k}{Numeric, default 5. Negative increments beyond this
+multiple of the robust (MAD) scale are trimmed before the moment
+estimate and reported. Set wide deliberately: the aim is to catch a
+gross tag mismatch, not to trim a heavy tail.}
+
+\item{max_liberty}{Numeric, days. Only records at liberty up to this are
+used for the reflection estimate. Default 730. A negative increment is
+measurement error at any liberty, but the fraction of records that are
+genuinely un-moulted falls as liberty grows, so the share of negatives
+that are tag-matching or transcription errors rises -- past roughly one
+intermoult period those dominate and inflate the estimate. Should scale
+with the species: 730 days suits a slow-growing deep-water crab, but a
+lobster moulting twice a year needs a much shorter window. The printed
+profile of sigError against cutoff shows where the estimate starts to
+climb, which is the contamination becoming visible.}
 }
 \value{
 \code{datain} with \code{LsigError_init} (log scale, for
@@ -55,10 +78,17 @@ the two is the best evidence the number is trustworthy.
 
 \strong{Robustness.} A moment estimator is destroyed by a couple of
 transcription errors -- in the deep-sea crab data two bad records
-inflated a raw sd from ~1.4 mm to 3.58 mm. Both a moment and a MAD-based
-estimate are computed; the MAD one is used when they diverge by more
-than \code{tol_ratio}, and the offending records are reported rather
-than silently discarded.
+inflated a raw sd from ~1.4 mm to 3.58 mm. Gross outliers are therefore
+trimmed at \code{outlier_k} times the robust (MAD) scale and reported,
+with the moment estimator applied to what remains.
+
+The estimator is NOT switched to a MAD-based one when the two disagree.
+MAD lies below the standard deviation for any peaked, heavy-tailed error
+distribution without contamination of any kind, so a moment/MAD ratio
+cannot distinguish the two situations. Note also that reflection is
+already immune to the failure mode above: those crab outliers were
+POSITIVE, and a negatives-only sample never sees them. Only a gross
+negative needs handling, which trimming does.
 
 \strong{Sheppard's correction.} Lengths recorded to the nearest whole mm
 carry an extra \code{round_unit^2 / 12} of variance from rounding alone.

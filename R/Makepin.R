@@ -116,18 +116,31 @@ Makepin <- function(avgrowth = 2,
   }
 
   if (TemporalGrowth) {
-    if (is.null(datain$yr_supported)) {
-      stop("datain$yr_supported not found. Run datain <- add_year_support(datain) ",
-           "before calling Makepin(TemporalGrowth = TRUE) -- Sraw is sized from the ",
-           "number of years with adequate recapture support, not raw nyears.")
+    if (isTRUE(datain$period_mode)) {
+      # One effect per period, last anchored by the sum-to-zero constraint.
+      if (is.null(datain$nperiods)) {
+        stop("datain$period_mode is TRUE but datain$nperiods is missing -- ",
+             "build datain with Makedata(..., period_col = ...).")
+      }
+      if (datain$nperiods < 2) {
+        stop("Only ", datain$nperiods, " period(s) -- nothing to estimate. ",
+             "Use period_mode = FALSE, or check the period column.")
+      }
+      pin$Sraw <- rep(0, datain$nperiods - 1)
+    } else {
+      if (is.null(datain$yr_supported)) {
+        stop("datain$yr_supported not found. Run datain <- add_year_support(datain) ",
+             "before calling Makepin(TemporalGrowth = TRUE) -- Sraw is sized from the ",
+             "number of years with adequate recapture support, not raw nyears.")
+      }
+      n_supported <- sum(datain$yr_supported)
+      if (n_supported < 2) {
+        stop("Fewer than 2 supported years in datain$yr_supported (", n_supported,
+             ") -- not enough information to estimate any year effects. Consider ",
+             "lowering min_support in add_year_support(), or fitting with TemporalGrowth = FALSE.")
+      }
+      pin$Sraw <- rep(0, n_supported - 1)
     }
-    n_supported <- sum(datain$yr_supported)
-    if (n_supported < 2) {
-      stop("Fewer than 2 supported years in datain$yr_supported (", n_supported,
-           ") -- not enough information to estimate any year effects. Consider ",
-           "lowering min_support in add_year_support(), or fitting with TemporalGrowth = FALSE.")
-    }
-    pin$Sraw <- rep(0, n_supported - 1)
   }
 
   attr(pin, "TemporalGrowth") <- TemporalGrowth

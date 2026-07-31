@@ -12,6 +12,8 @@ Makedata(
   M,
   smoother = 2,
   TemporalGrowth = FALSE,
+  period = FALSE,
+  period_col = "period",
   LsigError = NULL,
   mpy = 0,
   n_pmoult1 = 1,
@@ -20,6 +22,7 @@ Makedata(
   suppress = FALSE,
   liberty_days = NULL,
   lib_col = "Ldays",
+  sigError_max_liberty = 730,
   min_support = 3,
   quiet = FALSE
 )
@@ -45,6 +48,21 @@ trajectory x-axis, not by \code{growmod} itself).}
 \code{\link{Makepin}} and \code{\link{growmod}} pick up the same value
 rather than it being passed separately to each -- a mismatch between
 them was previously possible. Default \code{FALSE}.}
+
+\item{period}{Logical. When \code{TRUE} (and \code{TemporalGrowth = TRUE}),
+growth deviations are estimated once per PERIOD rather than once per
+year -- appropriate when the series has too few recaptures to support
+annual effects, or has a gap that annual effects would otherwise fill
+with zeros. Default \code{FALSE}, i.e. per-year effects. The period
+column can stay in \code{tdat} either way, so this is a one-line switch
+between the two.}
+
+\item{period_col}{Character, name of the record-level period column in
+\code{tdat}. Default \code{"period"}. Used only when
+\code{period = TRUE}. Record-level values are mapped up to a year-level
+vector covering every year, gaps filled by carrying the preceding
+period forward, so animals whose liberty spans a gap still get a
+defined effect.}
 
 \item{LsigError}{Numeric or \code{NULL}. Log measurement-error SD. When
 \code{NULL} (default) it is ESTIMATED from the data by
@@ -78,6 +96,13 @@ since with annual timesteps everything from ~6 to ~18 months maps to 1.}
 \item{lib_col}{Character, name of the time-at-liberty (days) column in
 \code{tdat}. Default \code{"Ldays"}. Ignored when \code{liberty_days}
 is supplied directly.}
+
+\item{sigError_max_liberty}{Numeric, days. Passed to
+\code{\link{add_sigError}}: only records at liberty up to this
+contribute to the measurement-error estimate, since negatives at long
+liberty are more likely tag-matching errors than measurement noise.
+Default 730; reduce for faster-growing species. Ignored when
+\code{LsigError} is supplied.}
 
 \item{min_support}{Integer, passed to \code{\link{add_year_support}} when
 \code{TemporalGrowth = TRUE}. Default 3.}

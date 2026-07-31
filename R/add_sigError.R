@@ -21,9 +21,10 @@
 #'   lobster moulting twice a year needs a much shorter window. The printed
 #'   profile of sigError against cutoff shows where the estimate starts to
 #'   climb, which is the contamination becoming visible.
-#' @param tol_ratio Numeric, default 1.3. If the moment estimate exceeds the
-#'   MAD estimate by more than this factor, the MAD estimate is used and the
-#'   offending records are reported.
+#' @param outlier_k Numeric, default 5. Negative increments beyond this
+#'   multiple of the robust (MAD) scale are trimmed before the moment
+#'   estimate and reported. Set wide deliberately: the aim is to catch a
+#'   gross tag mismatch, not to trim a heavy tail.
 #' @param quiet Logical, suppress the diagnostic printout. Default
 #'   \code{FALSE}.
 #'
@@ -56,10 +57,17 @@
 #'
 #' \strong{Robustness.} A moment estimator is destroyed by a couple of
 #' transcription errors -- in the deep-sea crab data two bad records
-#' inflated a raw sd from ~1.4 mm to 3.58 mm. Both a moment and a MAD-based
-#' estimate are computed; the MAD one is used when they diverge by more
-#' than \code{tol_ratio}, and the offending records are reported rather
-#' than silently discarded.
+#' inflated a raw sd from ~1.4 mm to 3.58 mm. Gross outliers are therefore
+#' trimmed at \code{outlier_k} times the robust (MAD) scale and reported,
+#' with the moment estimator applied to what remains.
+#'
+#' The estimator is NOT switched to a MAD-based one when the two disagree.
+#' MAD lies below the standard deviation for any peaked, heavy-tailed error
+#' distribution without contamination of any kind, so a moment/MAD ratio
+#' cannot distinguish the two situations. Note also that reflection is
+#' already immune to the failure mode above: those crab outliers were
+#' POSITIVE, and a negatives-only sample never sees them. Only a gross
+#' negative needs handling, which trimming does.
 #'
 #' \strong{Sheppard's correction.} Lengths recorded to the nearest whole mm
 #' carry an extra \code{round_unit^2 / 12} of variance from rounding alone.
@@ -81,7 +89,7 @@
 #'
 #' @export
 add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
-                          tol_ratio = 1.3, max_liberty = 730) {
+                          outlier_k = 5, max_liberty = 730) {
 
   inc <- tdat$rccl - tdat$rlcl
   lib <- datain$liberty
@@ -127,12 +135,45 @@ add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
   }
   refl <- c(neg, -neg)
 
-  sd_moment <- sqrt(mean(neg^2))          # E[X^2 | X<0] = sigma^2 for N(0, sigma^2)
-  sd_mad    <- mad(refl, center = 0)
+  ## --- Estimate, with gross outliers trimmed ------------------------------
+  ## Always the moment estimator, computed after removing genuinely extreme
+  ## values. An earlier version switched wholesale to the MAD estimate when
+  ## moment/MAD exceeded a ratio, which was wrong: MAD sits below the sd for
+  ## any peaked (leptokurtic) error distribution, with no contamination
+  ## whatever, so the ratio test cannot tell the two apart. On lobster data
+  ## it fired at a ratio of 1.44 and returned 0.205 mm when both the liberty
+  ## profile and the zero-opportunity cross-check said 0.303, flagging
+  ## ordinary -0.9 and -1.0 mm records as outliers.
+  ##
+  ## Note reflection is already immune to the failure mode that motivated
+  ## the fallback: the crab dataset's damaging outliers were POSITIVE
+  ## (+8 and +35 mm), and a negatives-only sample never sees them. Only a
+  ## gross NEGATIVE -- a tag mismatch reading -30 mm, say -- needs handling,
+  ## and trimming at a wide multiple of the robust scale does that without
+  ## penalising a heavy-tailed but legitimate error distribution.
+  mad_scale <- mad(refl, center = 0)
+  sd_moment_all <- sqrt(mean(neg^2))
 
-  outlier_ratio <- sd_moment / sd_mad
-  use_mad <- outlier_ratio > tol_ratio
-  sd_diff <- if (use_mad) sd_mad else sd_moment
+  if (mad_scale > 0) {
+    gross    <- abs(neg) > outlier_k * mad_scale
+    neg_used <- neg[!gross]
+  } else {
+    gross    <- rep(FALSE, length(neg))
+    neg_used <- neg
+  }
+  if (length(neg_used) < 10) {
+    warning("Trimming left fewer than 10 negatives -- using the untrimmed ",
+            "sample. Check outlier_k.")
+    gross    <- rep(FALSE, length(neg))
+    neg_used <- neg
+  }
+  if (sum(gross) > 0.1 * length(neg)) {
+    warning(sum(gross), " of ", length(neg), " negatives flagged as gross ",
+            "outliers. That is a lot -- the error distribution may be very ",
+            "heavy-tailed rather than contaminated. Inspect before trusting.")
+  }
+
+  sd_diff <- sqrt(mean(neg_used^2))
 
   ## --- Sheppard's correction, weighted by the integer-recorded fraction ---
   both_int <- abs(tdat$rlcl - round(tdat$rlcl)) < 1e-8 &
@@ -187,14 +228,15 @@ add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
     }
     cat("  using max_liberty        : ", max_liberty, " days\n", sep = "")
     cat("  negative increments used : ", n_neg, " of ", sum(ok), "\n", sep = "")
-    cat("  difference sd  moment    : ", round(sd_moment, 3), "\n", sep = "")
-    cat("  difference sd  MAD       : ", round(sd_mad, 3),
-        if (use_mad) "   <- used (outliers present)" else "", "\n", sep = "")
-    if (use_mad) {
-      big <- neg[abs(neg) > 3 * sd_mad]
-      cat("    ", length(big), " negative record(s) beyond 3 robust sd: ",
-          paste(round(sort(big), 1), collapse = ", "), "\n", sep = "")
-      cat("    (reported, not dropped -- check these against the raw data)\n")
+    cat("  difference sd  moment    : ", round(sd_moment_all, 3), "\n", sep = "")
+    cat("  robust scale (MAD)       : ", round(mad_scale, 3),
+        "   (reference only, not used)\n", sep = "")
+    if (sum(gross) > 0) {
+      cat("  trimmed ", sum(gross), " gross outlier(s) beyond ", outlier_k,
+          " x robust scale: ",
+          paste(round(sort(neg[gross]), 1), collapse = ", "), "\n", sep = "")
+      cat("    (check these against the raw data -- likely tag mismatches)\n")
+      cat("  difference sd  trimmed   : ", round(sd_diff, 3), "\n", sep = "")
     }
     cat("  whole-mm recorded pairs  : ", round(100 * frac_int), "%",
         "  (Sheppard correction ", signif(shep, 2), ")\n", sep = "")

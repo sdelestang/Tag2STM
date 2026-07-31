@@ -112,6 +112,9 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## decided at trace time. Default reproduces the previous behaviour
   ## exactly (no suppression, no extra parameters).
   if (is.null(datain$suppress))            datain$suppress <- FALSE
+  ## Period mode: S is common within period rather than unique per year.
+  ## Plain data / structural switch, decided at trace time.
+  if (is.null(datain$period_mode))         datain$period_mode <- FALSE
   ## PenSigError's centre and width. Previously hardcoded to
   ## log(2.0) / 0.5, which silently pulled toward 2 mm for any species
   ## whose measurement error was not 2 mm. Now supplied by add_sigError()
@@ -167,11 +170,30 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       stop("datain$relyr has values outside 1..", nyears, ". Convert to a ",
            "1-based year index before fitting -- see add_year_support().")
     }
-    supported_idx <- which(yr_supported)
-    n_sup <- length(supported_idx)
-    S <- rep(0, nyears)
-    if (n_sup > 1) {
-      S[supported_idx] <- c(Sraw, -sum(Sraw))
+    if (period_mode) {
+      ## One growth scalar per PERIOD, shared by every year in it. Sraw has
+      ## length nperiods - 1 and the last period is the sum-to-zero anchor,
+      ## exactly as the annual version does across supported years.
+      ##
+      ## year_period covers ALL years including those with no records, so an
+      ## animal whose liberty spans a gap still gets a defined S -- which is
+      ## the main practical advantage over annual effects on a series with a
+      ## hole in it, where gap years are pinned at 0 by construction.
+      ##
+      ## No yr_supported logic here: support is a property of the period,
+      ## which Makedata checks, not of the individual year.
+      Sper <- rep(0, nperiods)
+      if (nperiods > 1) Sper <- c(Sraw, -sum(Sraw))
+      S <- Sper[year_period]
+      Spen <- Sper   # penalise once per period, not once per year
+    } else {
+      supported_idx <- which(yr_supported)
+      n_sup <- length(supported_idx)
+      S <- rep(0, nyears)
+      if (n_sup > 1) {
+        S[supported_idx] <- c(Sraw, -sum(Sraw))
+      }
+      Spen <- S
     }
     ADREPORT(S)
   }
@@ -536,7 +558,10 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     smooth_penalty + drift_penalty
 
   if (TemporalGrowth) {
-    PenS <- 1.0 * sum(S^2)
+    ## Spen is the period vector in period mode and the year vector
+    ## otherwise. Using S directly in period mode would penalise a long
+    ## period more than a short one purely for containing more years.
+    PenS <- 1.0 * sum(Spen^2)
     TLL <- TLL + PenS
   }
 
@@ -574,7 +599,13 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     REPORT(rgrid)
     REPORT(r_curve)
   }
-  if (TemporalGrowth) REPORT(S)
+  if (TemporalGrowth) {
+    REPORT(S)
+    if (period_mode) {
+      ## Sper is the estimated quantity; S is it broadcast over years.
+      REPORT(Sper)
+    }
+  }
 
   TLL
 }

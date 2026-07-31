@@ -19,6 +19,19 @@
 #'   \code{\link{Makepin}} and \code{\link{growmod}} pick up the same value
 #'   rather than it being passed separately to each -- a mismatch between
 #'   them was previously possible. Default \code{FALSE}.
+#' @param period Logical. When \code{TRUE} (and \code{TemporalGrowth = TRUE}),
+#'   growth deviations are estimated once per PERIOD rather than once per
+#'   year -- appropriate when the series has too few recaptures to support
+#'   annual effects, or has a gap that annual effects would otherwise fill
+#'   with zeros. Default \code{FALSE}, i.e. per-year effects. The period
+#'   column can stay in \code{tdat} either way, so this is a one-line switch
+#'   between the two.
+#' @param period_col Character, name of the record-level period column in
+#'   \code{tdat}. Default \code{"period"}. Used only when
+#'   \code{period = TRUE}. Record-level values are mapped up to a year-level
+#'   vector covering every year, gaps filled by carrying the preceding
+#'   period forward, so animals whose liberty spans a gap still get a
+#'   defined effect.
 #' @param LsigError Numeric or \code{NULL}. Log measurement-error SD. When
 #'   \code{NULL} (default) it is ESTIMATED from the data by
 #'   \code{\link{add_sigError}} -- reflection on negative increments, which
@@ -89,6 +102,8 @@
 Makedata <- function(tdat, bins, ntsteps, goodts, M,
                      smoother = 2,
                      TemporalGrowth = FALSE,
+                     period = FALSE,
+                     period_col = "period",
                      LsigError = NULL,
                      mpy = 0,
                      n_pmoult1 = 1,
@@ -212,6 +227,63 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
     nobs     = nrow(tdat),
     year0    = yr0
   )
+  ## --- Period mode --------------------------------------------------------
+  ## A record-level period column is mapped up to a year-level vector
+  ## covering EVERY year, including those with no records: an animal
+  ## released before a gap and recaptured after it needs S defined
+  ## throughout, and gap years have no records of their own to label them.
+  ## Gaps are filled by carrying the preceding period forward (and back-
+  ## filling any leading gap), which is what "periods are contiguous blocks
+  ## of time" implies.
+  period_mode <- isTRUE(period)
+  if (period_mode) {
+    if (!TemporalGrowth) {
+      stop("period = TRUE but TemporalGrowth = FALSE -- period effects are a ",
+           "form of temporal growth variation, so set TemporalGrowth = TRUE.")
+    }
+    if (is.null(period_col) || !period_col %in% names(tdat)) {
+      stop("period = TRUE needs a period column in tdat. Looked for '",
+           period_col, "' -- set period_col to its actual name.")
+    }
+    prec <- as.integer(as.factor(tdat[[period_col]]))   # 1..nperiods, in order
+    nperiods <- max(prec, na.rm = TRUE)
+
+    ## Modal period of the records released in each year
+    yp <- rep(NA_integer_, nyears)
+    for (y in seq_len(nyears)) {
+      pv <- prec[relyr == y & !is.na(prec)]
+      if (length(pv)) yp[y] <- as.integer(names(which.max(table(pv))))
+    }
+    if (all(is.na(yp))) stop("No records with a usable period value.")
+
+    ## Carry forward, then back-fill any leading NAs
+    for (y in 2:nyears) if (is.na(yp[y])) yp[y] <- yp[y - 1]
+    first <- which(!is.na(yp))[1]
+    if (first > 1) yp[1:(first - 1)] <- yp[first]
+
+    if (any(diff(yp) < 0)) {
+      warning("Periods are not contiguous in time (year-to-period mapping is ",
+              "not monotonic). Check the period column -- overlapping periods ",
+              "are almost certainly a coding error.")
+    }
+
+    datain$year_period <- yp
+    datain$nperiods    <- nperiods
+    datain$period_mode <- TRUE
+
+    if (!quiet) {
+      yrs <- yr0 + seq_len(nyears) - 1
+      cat("Period mode: ", nperiods, " periods\n", sep = "")
+      for (p in seq_len(nperiods)) {
+        inp <- which(yp == p)
+        cat("  period ", p, ": ", min(yrs[inp]), "-", max(yrs[inp]),
+            "  (", sum(prec == p, na.rm = TRUE), " records)\n", sep = "")
+      }
+    }
+  } else {
+    datain$period_mode <- FALSE
+  }
+
   ## --- Measurement error --------------------------------------------------
   ## Estimated from the data unless supplied. A hand-set value has to be
   ## recalculated for every species and dataset, and getting it wrong
@@ -226,7 +298,11 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
     datain$LsigError_prior_sd   <- 0.5   # loose: a supplied value is an assertion
   }
 
-  if (TemporalGrowth) datain <- add_year_support(datain, min_support = min_support)
+  ## add_year_support is an annual-effects concept: in period mode, support
+  ## is a property of the period (reported above), not of the year.
+  if (TemporalGrowth && !period_mode) {
+    datain <- add_year_support(datain, min_support = min_support)
+  }
 
   ## --- Diagnostic summary -------------------------------------------------
   if (!quiet) {
