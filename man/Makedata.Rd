@@ -46,12 +46,13 @@ trajectory x-axis, not by \code{growmod} itself).}
 rather than it being passed separately to each -- a mismatch between
 them was previously possible. Default \code{FALSE}.}
 
-\item{LsigError}{Numeric or \code{NULL}. Log measurement-error SD, stored
-as \code{LsigError_init} for \code{Makepin} to use as its default.
-\code{NULL} (default) leaves \code{Makepin}'s own default in force.
-This should come from the data rather than being guessed -- for the
-deep-sea crab data the fixed \code{log(2)} was nearly double the
-empirical value and biased the moult/no-moult split.}
+\item{LsigError}{Numeric or \code{NULL}. Log measurement-error SD. When
+\code{NULL} (default) it is ESTIMATED from the data by
+\code{\link{add_sigError}} -- reflection on negative increments, which
+can only be measurement error since moulting always increases length.
+Supply a value only to override that; doing so also widens the
+\code{PenSigError} prior to 0.5, since a supplied number is an
+assertion rather than an estimate with known sampling error.}
 
 \item{mpy}{Numeric, minimum moults per year (biological floor on Pmoult).
 Default 0 (no floor). See \code{\link{growmod}}.}

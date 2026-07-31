@@ -19,12 +19,13 @@
 #'   \code{\link{Makepin}} and \code{\link{growmod}} pick up the same value
 #'   rather than it being passed separately to each -- a mismatch between
 #'   them was previously possible. Default \code{FALSE}.
-#' @param LsigError Numeric or \code{NULL}. Log measurement-error SD, stored
-#'   as \code{LsigError_init} for \code{Makepin} to use as its default.
-#'   \code{NULL} (default) leaves \code{Makepin}'s own default in force.
-#'   This should come from the data rather than being guessed -- for the
-#'   deep-sea crab data the fixed \code{log(2)} was nearly double the
-#'   empirical value and biased the moult/no-moult split.
+#' @param LsigError Numeric or \code{NULL}. Log measurement-error SD. When
+#'   \code{NULL} (default) it is ESTIMATED from the data by
+#'   \code{\link{add_sigError}} -- reflection on negative increments, which
+#'   can only be measurement error since moulting always increases length.
+#'   Supply a value only to override that; doing so also widens the
+#'   \code{PenSigError} prior to 0.5, since a supplied number is an
+#'   assertion rather than an estimate with known sampling error.
 #' @param mpy Numeric, minimum moults per year (biological floor on Pmoult).
 #'   Default 0 (no floor). See \code{\link{growmod}}.
 #' @param n_pmoult1 Integer, number of smallest length bins with Pmoult
@@ -204,7 +205,18 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
     nobs     = nrow(tdat),
     year0    = yr0
   )
-  if (!is.null(LsigError)) datain$LsigError_init <- LsigError
+  ## --- Measurement error --------------------------------------------------
+  ## Estimated from the data unless supplied. A hand-set value has to be
+  ## recalculated for every species and dataset, and getting it wrong
+  ## biases the moult/no-moult split -- for deep-sea crab the previously
+  ## fixed log(2) was nearly double the empirical value.
+  if (is.null(LsigError)) {
+    datain <- add_sigError(datain, tdat, quiet = quiet)
+  } else {
+    datain$LsigError_init       <- LsigError
+    datain$LsigError_prior_mean <- LsigError
+    datain$LsigError_prior_sd   <- 0.5   # loose: a supplied value is an assertion
+  }
 
   if (TemporalGrowth) datain <- add_year_support(datain, min_support = min_support)
 

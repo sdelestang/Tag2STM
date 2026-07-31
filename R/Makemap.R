@@ -59,7 +59,7 @@
 #' @export
 Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
                      Pmoult_shared = FALSE, estSuppress = TRUE,
-                     estSlope = TRUE) {
+                     estSlope = TRUE, estSigError = FALSE) {
   pnames <- names(pin)[!(grepl('sig', names(pin), ignore.case = TRUE) |
                            grepl('error', names(pin), ignore.case = TRUE) |
                            names(pin) == 'Sraw' |
@@ -84,7 +84,28 @@ Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
     }
   }
 
-  map$LsigError <- factor(NA)
+  # LsigError is fixed by default. Freeing it under the OLD loose prior
+  # (log(2), sd 0.5 -- roughly +/-65% within one sd) collapsed the growth
+  # curve toward flat: with one release and one recapture measurement per
+  # animal, that much slack let the model explain genuine growth away as
+  # measurement noise.
+  #
+  # estSigError = TRUE frees it. That is only safe when datain carries a
+  # data-derived prior from add_sigError(), whose width is the sampling SE
+  # of the estimate (typically ~0.05 on the log scale, i.e. +/-5%) -- far
+  # too tight for the collapse mechanism to operate. The check below
+  # refuses to free it against the loose fallback prior.
+  if (estSigError) {
+    psd <- datain$LsigError_prior_sd
+    if (is.null(psd) || psd > 0.2) {
+      stop("estSigError = TRUE needs a data-derived prior on LsigError. ",
+           "Build datain with Makedata(..., LsigError = NULL) so that ",
+           "add_sigError() estimates it, or leave estSigError = FALSE. ",
+           "Freeing LsigError against a loose prior collapses the growth curve.")
+    }
+  } else {
+    map$LsigError <- factor(NA)
+  }
 
   if (re == FALSE) {
     map$LMerrorRelsigma <- factor(NA)

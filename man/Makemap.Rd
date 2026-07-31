@@ -10,7 +10,8 @@ Makemap(
   estTemporalGrowth = TRUE,
   Pmoult_shared = FALSE,
   estSuppress = TRUE,
-  estSlope = TRUE
+  estSlope = TRUE,
+  estSigError = FALSE
 )
 }
 \arguments{

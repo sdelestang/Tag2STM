@@ -112,6 +112,13 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## decided at trace time. Default reproduces the previous behaviour
   ## exactly (no suppression, no extra parameters).
   if (is.null(datain$suppress))            datain$suppress <- FALSE
+  ## PenSigError's centre and width. Previously hardcoded to
+  ## log(2.0) / 0.5, which silently pulled toward 2 mm for any species
+  ## whose measurement error was not 2 mm. Now supplied by add_sigError()
+  ## via Makedata; the old values remain the fallback for a datain built
+  ## before that existed.
+  if (is.null(datain$LsigError_prior_mean)) datain$LsigError_prior_mean <- log(2.0)
+  if (is.null(datain$LsigError_prior_sd))   datain$LsigError_prior_sd   <- 0.5
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -517,7 +524,8 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   sigGrowvec <- exp(LsigGrow) * gseq
 
   ## --- Penalties ------------------------------------------------------------
-  PenSigError    <- -dnorm(LsigError, log(2.0), 0.5, log = TRUE)
+  PenSigError    <- -dnorm(LsigError, LsigError_prior_mean,
+                           LsigError_prior_sd, log = TRUE)
   PenMerrorRel   <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))
   PenMerrorRec   <- -sum(dnorm(0, MerrorRec, exp(LMerrorRecsigma), log = TRUE))
   smooth_penalty <- smoother * sum((growthmat[goodts, 2:nlbin] -
