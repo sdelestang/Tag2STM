@@ -91,24 +91,28 @@ Makepin <- function(avgrowth = 2,
     pin$mpy_split_par <- rep(0, n_goodts - 1)
   }
 
-  # Tagging-induced moult suppression (see growmod). Only present when
-  # datain$suppress is TRUE, and must be present at trace time whenever it
-  # is -- like mpy_split_par, the parameter vector's shape is fixed when
-  # MakeADFun() traces, so this cannot be toggled between fits without
-  # rebuilding.
+  # Tagging-induced moult suppression as a recovery function of total time
+  # at liberty (see growmod). Present only when datain$suppress is TRUE,
+  # and must be present at trace time whenever it is -- like mpy_split_par,
+  # the parameter vector's shape is fixed when MakeADFun() traces.
   #
-  # suppress_par starts at plogis(-0.4) ~= 0.40, i.e. ~60% of the first
-  # post-release moult suppressed -- the deep-sea crab estimate (2.32 mm
-  # growth at one opportunity vs ~5.5 mm at two or three). It is a starting
-  # value, not a constraint; for a program with no handling effect the fit
-  # should push it toward 1 (suppress_par -> +Inf).
+  #   r = r0 + (1 - r0) * plogis((liberty_days - lib50) / slope)
   #
-  # comp_par starts at 0, i.e. plogis(0) = 0.5, half the deferred moult
-  # recovered in the second opportunity -- deliberately neutral between
-  # "moult lost" and "moult fully deferred".
+  # r0_par    : logit(r0). Starts at logit(0.4) ~= -0.405, i.e. animals
+  #             recaptured immediately show ~40% of the expected moult
+  #             probability -- roughly the deep-sea crab ratio (2.4 mm at
+  #             one opportunity against ~5.5 mm per opportunity later).
+  #             For a program with no handling effect the fit should push
+  #             r0 toward 1 (r0_par -> +Inf).
+  # lib50_par : log(days) at half recovery. Starts at log(300).
+  # slope_par : log(days) transition width. Starts at log(60), i.e. most
+  #             of the recovery spans roughly +/- 4 months around lib50.
+  #             This is the least well-informed of the three -- liberty is
+  #             coarsely distributed -- so fix it if its SE is large.
   if (isTRUE(datain$suppress)) {
-    pin$suppress_par <- -0.4
-    if (!isFALSE(datain$suppress_compensate)) pin$comp_par <- 0
+    pin$r0_par    <- qlogis(0.4)
+    pin$lib50_par <- log(300)
+    pin$slope_par <- log(60)
   }
 
   if (TemporalGrowth) {

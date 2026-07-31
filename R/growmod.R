@@ -107,11 +107,11 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   if (is.null(datain$ident_wt))            datain$ident_wt <- 0
   if (is.null(datain$use_individual_error)) datain$use_individual_error <- FALSE
   if (is.null(datain$n_pmoult1))            datain$n_pmoult1 <- 1
-  ## Tagging-induced moult suppression. Both plain data / structural
-  ## switches, decided at trace time. Defaults reproduce the previous
-  ## behaviour exactly (no suppression, no extra parameters, no extra STMs).
+  ## Tagging-induced moult suppression, as a recovery function of the
+  ## animal's TOTAL time at liberty. Plain data / structural switch,
+  ## decided at trace time. Default reproduces the previous behaviour
+  ## exactly (no suppression, no extra parameters).
   if (is.null(datain$suppress))            datain$suppress <- FALSE
-  if (is.null(datain$suppress_compensate)) datain$suppress_compensate <- TRUE
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -206,60 +206,54 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   }
 
   ## --- Tagging-induced moult suppression ---------------------------------
-  ## Handling and tag insertion can delay an animal's FIRST post-release
-  ## moult; this is documented in other crustaceans. In the deep-sea crab
-  ## data it showed up as growth of 2.32 mm per timestep among animals with
-  ## exactly one moult opportunity, against ~5.5 mm at two and three
-  ## opportunities -- i.e. roughly 58% of the first-period moult missing,
-  ## while the model matched the longer-liberty animals well.
+  ## Handling and tag insertion reduce an animal's chance of moulting soon
+  ## after release; this is documented in other crustaceans. In the
+  ## deep-sea crab data it showed as ~2.4 mm growth among animals with one
+  ## moult opportunity against ~5.5 mm per opportunity at two and three,
+  ## with no detectable shortfall by two opportunities.
   ##
-  ## suppress in (0, 1) multiplies Pmoult in each animal's FIRST goodts
-  ## opportunity after release. Note this deliberately overrides BOTH the
-  ## n_pmoult1 hard-fix (a tagged juvenile is not certain to moult) and the
-  ## mpy floor (the floor is a biological minimum for an untagged animal,
-  ## which a freshly tagged one may legitimately fall below).
+  ## Modelled as a recovery function of the animal's TOTAL time at
+  ## liberty, one value per animal, multiplying Pmoult in every timestep
+  ## that animal occupies:
   ##
-  ## DELAY, NOT LOSS. Cumulative growth at two opportunities was ~2x the
-  ## per-opportunity rate, so the suppressed moult appears to happen late
-  ## rather than never. A bare multiplier would therefore over-penalise
-  ## longer-liberty animals, so comp in (0, 1) adds back part of the
-  ## deferred moult in the SECOND opportunity.
+  ##   r_i = r0 + (1 - r0) * plogis((liberty_i - lib50) / slope)
   ##
-  ## The deferred animals are those whose period-1 moult was suppressed --
-  ## a fraction (1 - suppress) * P of the population, NOT the (1 - P) who
-  ## were never going to moult anyway. So:
+  ## r0 in (0, 1) is the short-term impact of release, lib50 the liberty
+  ## (in DAYS) at which half the recovery has occurred, slope the width of
+  ## the transition in days. r rises from r0 at release toward 1.
   ##
-  ##   d  = comp * (1 - suppress) * P        # deferred moults arriving now
-  ##   P2 = d + (1 - d) * P
+  ## \strong{What this is and is not.} r * Pmoult is pure loss -- a
+  ## suppressed moult is gone, with no mechanism for it to occur later. So
+  ## this does NOT model catch-up; it asserts that animals recaptured after
+  ## a long liberty were never suppressed. Since r depends on liberty,
+  ## which is an outcome (when the animal happened to be recaptured) rather
+  ## than a covariate of the animal, this is a correction for "observed too
+  ## soon" rather than a biological rate: an animal at liberty long enough
+  ## may have fitted two moults in and the shortfall is no longer visible.
+  ## Report r0 as "animals recaptured shortly after release show a fraction
+  ## r0 of the expected moult probability", not as "handling suppresses
+  ## moulting by (1 - r0)".
   ##
-  ## i.e. an animal moults in period 2 if its deferred moult arrives, or
-  ## failing that if it moults normally. This is bounded in (0, 1) by
-  ## construction since d <= P <= 1 (no clamping, hence no comparison on an
-  ## AD type), reduces to P when suppress = 1 or comp = 0, and scales with
-  ## P so that a large animal with a near-zero moult probability gets a
-  ## near-zero compensation.
+  ## This replaces an earlier opportunity-indexed pair (a multiplier on the
+  ## first goodts opportunity plus a compensating boost in the second).
+  ## That version could not depress a single-opportunity animal without
+  ## also depressing the first opportunity of every longer-liberty animal,
+  ## because at any ntsteps the first opportunity sits at the same elapsed
+  ## time regardless of how long the animal ends up at liberty.
   ##
-  ## An earlier version used P2 = P + (1 - P) * comp * (1 - suppress),
-  ## which applied the compensation to the non-moulters instead. With comp
-  ## at its ceiling that gives P2 = 1 - suppress * (1 - P), a floor of
-  ## (1 - suppress) at EVERY size -- so a 199 mm animal with base Pmoult
-  ## 0.002 was assigned a second-period probability of 0.83. It also
-  ## explains why comp pinned at 1: spreading compensation over the wrong
-  ## animals meant more of it was always better.
-  ##
-  ## Set datain$suppress_compensate = FALSE to test pure loss instead.
+  ## Note r scales Pmoult uniformly across size bins, so it does NOT need
+  ## its own STM array -- see the blend identity at the chaining step.
+  ## r deliberately overrides both the n_pmoult1 hard-fix and the mpy
+  ## floor: a freshly tagged animal is neither certain to moult nor bound
+  ## by a floor that describes untagged animals.
   if (suppress) {
-    suppress_p <- plogis(suppress_par)
-    comp_p     <- if (suppress_compensate) plogis(comp_par) else 0
-
-    Pmoult_first_fn <- function(ns, fm) {
-      suppress_p * Pmoult_fn(ns, fm)
-    }
-    Pmoult_second_fn <- function(ns, fm) {
-      P <- Pmoult_fn(ns, fm)
-      d <- comp_p * (1 - suppress_p) * P
-      d + (1 - d) * P
-    }
+    r0_p    <- plogis(r0_par)
+    lib50_p <- exp(lib50_par)
+    slope_p <- exp(slope_par)
+    ## liberty is plain data (days); r_vec is AD via the parameters.
+    r_vec <- r0_p + (1 - r0_p) * plogis((liberty - lib50_p) / slope_p)
+  } else {
+    r_vec <- rep(1, nobs)
   }
 
   growth_vecmat <- matrix(growth_vecpar, ncol = nlbin, nrow = ntsteps, byrow = TRUE)
@@ -326,14 +320,23 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     A
   }
 
-  ## stm is the ordinary (untagged / post-recovery) transition matrix and is
-  ## what gets REPORTed -- downstream consumers (ClipSTM, Vb2STM, the stock
+  ## stm is the ordinary (untagged) transition matrix and is what gets
+  ## REPORTed -- downstream consumers (ClipSTM, Vb2STM, the stock
   ## assessment) want the biological STM, not the tagging-affected one.
+  ##
+  ## No suppressed variant is built. Because r scales Pmoult uniformly
+  ## across every size bin, and each STM column is
+  ## stm(P) = P * A + (1 - P) * I (with A holding the normalised growth
+  ## columns), scaling P -> r*P gives exactly
+  ##
+  ##   stm(r*P) = r * stm(P) + (1 - r) * I
+  ##
+  ## so a suppressed step is an exact linear blend of the base STM and the
+  ## identity, applied at the chaining step below. That holds column-wise
+  ## for any P, including the n_pmoult1 hard-fixed columns. It costs no
+  ## extra arrays and no extra memory, which is what makes a fine-timestep
+  ## configuration (monthly, say) feasible.
   stm <- make_stm(Pmoult_fn)
-  if (suppress) {
-    stm_first <- make_stm(Pmoult_first_fn)
-    if (suppress_compensate) stm_second <- make_stm(Pmoult_second_fn)
-  }
 
   ## --- Internal identification mixture (local function) -------------------
   ## Moment-matched forward recursion over K goodts opportunities. No
@@ -341,7 +344,7 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## are over plain-integer loop indices, never over a weight/probability
   ## value itself; division-by-zero is avoided with an additive eps instead
   ## of a guarded branch.
-  ident_mixture_ll <- function(inc, fm, ns_seq, yr_seq) {
+  ident_mixture_ll <- function(inc, fm, ns_seq, yr_seq, r_i) {
     K <- length(ns_seq)
     if (K == 0) return(0)   # plain-data branch: fine
 
@@ -350,19 +353,11 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     vr_k <- rep(0, K)
     for (k in 1:K) {
       ns_k <- ns_seq[k]
-      ## ns_seq is in chronological order, so k indexes the animal's 1st,
-      ## 2nd, ... goodts opportunity since release -- exactly what the
-      ## suppression/compensation applies to. k is a plain loop index, so
-      ## these comparisons are safe.
-      p_k[k] <- if (!suppress) {
-        Pmoult_fn(ns_k, fm)
-      } else if (k == 1) {
-        Pmoult_first_fn(ns_k, fm)
-      } else if (k == 2 && suppress_compensate) {
-        Pmoult_second_fn(ns_k, fm)
-      } else {
-        Pmoult_fn(ns_k, fm)
-      }
+      ## r_i is this animal's recovery factor, constant across its
+      ## timesteps (it is a function of total liberty), so it scales every
+      ## opportunity's moult probability identically -- matching what the
+      ## STM chain does.
+      p_k[k] <- r_i * Pmoult_fn(ns_k, fm)
       mg <- growthmat[ns_k, fm]
       if (TemporalGrowth) mg <- mg * exp(S[yr_seq[k]])
       mu_k[k] <- mg
@@ -446,36 +441,21 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       IdentLL[r] <- ident_mixture_ll(
         inc = inc_r, fm = fm_r,
         ns_seq = tstepsvec[good_idx],
-        yr_seq = if (TemporalGrowth) yearvec[good_idx] else NULL
+        yr_seq = if (TemporalGrowth) yearvec[good_idx] else NULL,
+        r_i = r_vec[r]
       )
     }
 
-    ## --- STM chaining (unchanged logic, reusing tstepsvec/yearvec above) ---
+    ## --- STM chaining -------------------------------------------------
+    ## Suppression enters as the exact blend stm(r*P) = r*stm(P) + (1-r)*I
+    ## derived above, so no suppressed STM array is needed. r_vec[r] = 1
+    ## when suppress is FALSE, which reduces this to the plain product.
     if (length(tstepsvec) > 0) {
-      ## good_count tracks which goodts opportunity since RELEASE this is
-      ## (1st, 2nd, ...), which is what suppression applies to -- not the
-      ## raw timestep index. This is why it generalises to the two-window
-      ## lobster configuration for free: an animal released just after the
-      ## first window has its first opportunity in the second window, and
-      ## that is the one suppressed. good_count is a plain integer.
-      good_count <- 0
       for (ts in 1:length(tstepsvec)) {
         if (tstepsvec[ts] %in% goodts) {
-          good_count <- good_count + 1
-          variant <- if (!suppress) 0L
-                     else if (good_count == 1) 1L
-                     else if (good_count == 2 && suppress_compensate) 2L
-                     else 0L
-          tmpstm <- if (TemporalGrowth) {
-            if (variant == 1L)      stm_first[,  , tstepsvec[ts], yearvec[ts]]
-            else if (variant == 2L) stm_second[, , tstepsvec[ts], yearvec[ts]]
-            else                    stm[,        , tstepsvec[ts], yearvec[ts]]
-          } else {
-            if (variant == 1L)      stm_first[,  , tstepsvec[ts]]
-            else if (variant == 2L) stm_second[, , tstepsvec[ts]]
-            else                    stm[,        , tstepsvec[ts]]
-          }
-          lens <- tmpstm %*% lens
+          tmpstm <- if (TemporalGrowth) stm[, , tstepsvec[ts], yearvec[ts]]
+                    else stm[, , tstepsvec[ts]]
+          lens <- (1 - r_vec[r]) * lens + r_vec[r] * (tmpstm %*% lens)
         }
       }
     }
@@ -572,23 +552,19 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(Pmoult_par)
   REPORT(mpy_floor)
   if (suppress) {
-    ## suppress_p: multiplier on Pmoult in the first goodts opportunity
-    ## after release (1 = no suppression, 0 = complete).
-    ## comp_p: fraction of the deferred moult recovered in the second.
-    ## Pmoult_first_vec / Pmoult_second_vec: the realised curves, directly
-    ## comparable with Pmoult_vec for plotting.
-    REPORT(suppress_p)
-    REPORT(comp_p)
-    Pmoult_first_vec  <- matrix(0, ntsteps, nlbin)
-    Pmoult_second_vec <- matrix(0, ntsteps, nlbin)
-    for (ns in 1:ntsteps) {
-      for (fm in 1:nlbin) {
-        Pmoult_first_vec[ns, fm]  <- Pmoult_first_fn(ns, fm)
-        Pmoult_second_vec[ns, fm] <- Pmoult_second_fn(ns, fm)
-      }
-    }
-    REPORT(Pmoult_first_vec)
-    REPORT(Pmoult_second_vec)
+    ## r0_p    : recovery multiplier at zero liberty (1 = no effect)
+    ## lib50_p : liberty in DAYS at half recovery
+    ## slope_p : transition width in days
+    ## r_vec   : per-animal multiplier actually applied
+    ## r_curve : r evaluated on a day grid, for plotting
+    REPORT(r0_p)
+    REPORT(lib50_p)
+    REPORT(slope_p)
+    REPORT(r_vec)
+    rgrid   <- seq(0, 1500, 10)
+    r_curve <- r0_p + (1 - r0_p) * plogis((rgrid - lib50_p) / slope_p)
+    REPORT(rgrid)
+    REPORT(r_curve)
   }
   if (TemporalGrowth) REPORT(S)
 

@@ -18,7 +18,8 @@ Makedata(
   ident_wt = 1,
   use_individual_error = FALSE,
   suppress = FALSE,
-  suppress_compensate = TRUE,
+  liberty_days = NULL,
+  lib_col = "Ldays",
   min_support = 3,
   quiet = FALSE
 )
@@ -63,13 +64,19 @@ Default 1. Set to 0 for a pure marginal fit.}
 
 \item{use_individual_error}{Logical, default \code{FALSE}.}
 
-\item{suppress}{Logical, estimate tagging-induced moult suppression in
-each animal's first post-release moult opportunity. Default
-\code{FALSE}.}
+\item{suppress}{Logical, estimate tagging-induced moult suppression as a
+recovery function of time at liberty. Default \code{FALSE}. Requires
+liberty in days (see \code{liberty_days}).}
 
-\item{suppress_compensate}{Logical, allow part of a suppressed moult to
-be recovered in the second opportunity (delay rather than loss).
-Default \code{TRUE}; ignored when \code{suppress = FALSE}.}
+\item{liberty_days}{Numeric vector or \code{NULL}. Time at liberty in
+days, one per record. If \code{NULL} (default) it is taken from the
+\code{lib_col} column of \code{tdat} when present. Required when
+\code{suppress = TRUE}; \code{tsteps} is far too coarse a substitute,
+since with annual timesteps everything from ~6 to ~18 months maps to 1.}
+
+\item{lib_col}{Character, name of the time-at-liberty (days) column in
+\code{tdat}. Default \code{"Ldays"}. Ignored when \code{liberty_days}
+is supplied directly.}
 
 \item{min_support}{Integer, passed to \code{\link{add_year_support}} when
 \code{TemporalGrowth = TRUE}. Default 3.}

@@ -58,14 +58,16 @@
 #'
 #' @export
 Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
-                     Pmoult_shared = FALSE, estSuppress = TRUE) {
+                     Pmoult_shared = FALSE, estSuppress = TRUE,
+                     estSlope = TRUE) {
   pnames <- names(pin)[!(grepl('sig', names(pin), ignore.case = TRUE) |
                            grepl('error', names(pin), ignore.case = TRUE) |
                            names(pin) == 'Sraw' |
                            names(pin) == 'Pmoult_par' |
                            names(pin) == 'mpy_split_par' |
-                           names(pin) == 'suppress_par' |
-                           names(pin) == 'comp_par')]
+                           names(pin) == 'r0_par' |
+                           names(pin) == 'lib50_par' |
+                           names(pin) == 'slope_par')]
 
   turnon <- 1:(datain$ntsteps * datain$nlbin)
   turnon[!(rep(1:(datain$ntsteps), each = datain$nlbin)) %in% datain$goodts] <- NA
@@ -134,18 +136,18 @@ Makemap <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
     # else: not added to map, so estimated freely (default)
   }
 
-  ## --- Suppression parameters (new) ---------------------------------------
-  ## Free by default when present -- the whole point is estimating how much
-  ## of the first post-release moult is lost. Set estSuppress = FALSE to fix
-  ## them at their Makepin starting values, which is the right way to run a
-  ## likelihood comparison against the no-suppression case (fit both, compare
-  ## Pmoult and the growth curve; the objective is not a true log-likelihood
-  ## so treat any difference as indicative rather than as a test statistic).
-  if ('suppress_par' %in% names(pin) && !estSuppress) {
-    map$suppress_par <- factor(NA)
+  ## --- Suppression / recovery parameters -----------------------------------
+  ## Free by default when present. estSuppress = FALSE fixes all three at
+  ## their Makepin starting values, which is the right way to compare
+  ## against a no-suppression fit. estSlope = FALSE fixes only slope_par --
+  ## liberty is coarsely distributed, so the transition width is usually
+  ## the least well-informed of the three; fix it if its SE comes back
+  ## large or if the fit wanders to an implausible value.
+  for (nm in c('r0_par', 'lib50_par', 'slope_par')) {
+    if (nm %in% names(pin) && !estSuppress) map[[nm]] <- factor(NA)
   }
-  if ('comp_par' %in% names(pin) && !estSuppress) {
-    map$comp_par <- factor(NA)
+  if ('slope_par' %in% names(pin) && estSuppress && !estSlope) {
+    map$slope_par <- factor(NA)
   }
 
   return(map)
