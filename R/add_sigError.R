@@ -11,6 +11,19 @@
 #' @param tdat The tag-recapture data frame \code{datain} was built from.
 #' @param round_unit Numeric, the recording resolution in mm for
 #'   whole-unit-recorded lengths. Default 1. Used for Sheppard's correction.
+#' @param max_liberty Numeric, days. Only records at liberty up to this are
+#'   used for the reflection estimate. Default 730. A negative increment is
+#'   measurement error at any liberty, but the fraction of records that are
+#'   genuinely un-moulted falls as liberty grows, so the share of negatives
+#'   that are tag-matching or transcription errors rises -- past roughly one
+#'   intermoult period those dominate and inflate the estimate. Should scale
+#'   with the species: 730 days suits a slow-growing deep-water crab, but a
+#'   lobster moulting twice a year needs a much shorter window. The printed
+#'   profile of sigError against cutoff shows where the estimate starts to
+#'   climb, which is the contamination becoming visible.
+#' @param tol_ratio Numeric, default 1.3. If the moment estimate exceeds the
+#'   MAD estimate by more than this factor, the MAD estimate is used and the
+#'   offending records are reported.
 #' @param quiet Logical, suppress the diagnostic printout. Default
 #'   \code{FALSE}.
 #'
@@ -68,17 +81,49 @@
 #'
 #' @export
 add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
-                          tol_ratio = 1.3) {
+                          tol_ratio = 1.3, max_liberty = 730) {
 
   inc <- tdat$rccl - tdat$rlcl
-  inc <- inc[!is.na(inc)]
-  if (length(inc) == 0) stop("No non-missing increments in tdat.")
+  lib <- datain$liberty
+  if (is.null(lib)) lib <- rep(NA_real_, length(inc))
+  ok  <- !is.na(inc)
 
-  ## --- Primary: reflection on negative increments -------------------------
-  neg <- inc[inc < 0]
+  ## --- Liberty profile of the estimate (diagnostic) -----------------------
+  ## Printed so the max_liberty choice is visible rather than assumed. If
+  ## sigError climbs steadily with the cutoff, that is contamination
+  ## entering, not measurement error growing.
+  cuts <- c(365, 730, 1095, 1460, Inf)
+  prof <- do.call(rbind, lapply(cuts, function(L) {
+    sel <- ok & inc < 0 & (is.na(lib) | lib <= L)
+    n   <- sum(sel)
+    data.frame(max_liberty = L, n_neg = n,
+               sigError = if (n >= 5) sqrt(mean(inc[sel]^2)) / sqrt(2) else NA_real_)
+  }))
+
+  ## --- Restrict to short-liberty records ----------------------------------
+  ## A negative increment is measurement error at any liberty, but the
+  ## fraction of records that are genuinely un-moulted falls as liberty
+  ## grows, so the share of negatives that are tag-matching or transcription
+  ## errors rises. Past roughly one intermoult period those errors dominate
+  ## and inflate the estimate. max_liberty should scale with the species'
+  ## intermoult period -- 730 days suits a slow-growing deep-water crab;
+  ## reduce it substantially for a fast-growing species (a lobster moulting
+  ## twice a year does not need, and should not use, a two-year window).
+  if (all(is.na(lib))) {
+    if (!quiet) {
+      cat("add_sigError: no liberty data -- using all records ",
+          "(max_liberty ignored).\n", sep = "")
+    }
+    keep <- ok
+  } else {
+    keep <- ok & !is.na(lib) & lib <= max_liberty
+  }
+
+  neg <- inc[keep & inc < 0]
   if (length(neg) < 10) {
-    stop("Only ", length(neg), " negative increments -- too few to estimate ",
-         "measurement error by reflection. Supply LsigError directly.")
+    stop("Only ", length(neg), " negative increments within max_liberty = ",
+         max_liberty, " -- too few to estimate measurement error by ",
+         "reflection. Raise max_liberty or supply LsigError directly.")
   }
   refl <- c(neg, -neg)
 
@@ -92,7 +137,7 @@ add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
   ## --- Sheppard's correction, weighted by the integer-recorded fraction ---
   both_int <- abs(tdat$rlcl - round(tdat$rlcl)) < 1e-8 &
               abs(tdat$rccl - round(tdat$rccl)) < 1e-8
-  frac_int <- mean(both_int, na.rm = TRUE)
+  frac_int <- mean(both_int[keep], na.rm = TRUE)
   shep     <- frac_int * (round_unit^2) / 12
 
   var_diff <- sd_diff^2 - shep
@@ -124,7 +169,16 @@ add_sigError <- function(datain, tdat, round_unit = 1, quiet = FALSE,
 
   if (!quiet) {
     cat("add_sigError:\n")
-    cat("  negative increments used : ", n_neg, " of ", length(inc), "\n", sep = "")
+    cat("  sigError by liberty cutoff (days):\n")
+    for (i in seq_len(nrow(prof))) {
+      cat("    <= ", formatC(prof$max_liberty[i], width = 5),
+          "  n_neg ", formatC(prof$n_neg[i], width = 4),
+          "  sigError ",
+          if (is.na(prof$sigError[i])) "   --" else formatC(prof$sigError[i], format = "f", digits = 3),
+          "\n", sep = "")
+    }
+    cat("  using max_liberty        : ", max_liberty, " days\n", sep = "")
+    cat("  negative increments used : ", n_neg, " of ", sum(ok), "\n", sep = "")
     cat("  difference sd  moment    : ", round(sd_moment, 3), "\n", sep = "")
     cat("  difference sd  MAD       : ", round(sd_mad, 3),
         if (use_mad) "   <- used (outliers present)" else "", "\n", sep = "")

@@ -44,6 +44,12 @@
 #' @param lib_col Character, name of the time-at-liberty (days) column in
 #'   \code{tdat}. Default \code{"Ldays"}. Ignored when \code{liberty_days}
 #'   is supplied directly.
+#' @param sigError_max_liberty Numeric, days. Passed to
+#'   \code{\link{add_sigError}}: only records at liberty up to this
+#'   contribute to the measurement-error estimate, since negatives at long
+#'   liberty are more likely tag-matching errors than measurement noise.
+#'   Default 730; reduce for faster-growing species. Ignored when
+#'   \code{LsigError} is supplied.
 #' @param min_support Integer, passed to \code{\link{add_year_support}} when
 #'   \code{TemporalGrowth = TRUE}. Default 3.
 #' @param quiet Logical, suppress the diagnostic summary. Default
@@ -91,6 +97,7 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
                      suppress = FALSE,
                      liberty_days = NULL,
                      lib_col = "Ldays",
+                     sigError_max_liberty = 730,
                      min_support = 3,
                      quiet = FALSE) {
 
@@ -211,7 +218,8 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
   ## biases the moult/no-moult split -- for deep-sea crab the previously
   ## fixed log(2) was nearly double the empirical value.
   if (is.null(LsigError)) {
-    datain <- add_sigError(datain, tdat, quiet = quiet)
+    datain <- add_sigError(datain, tdat, quiet = quiet,
+                            max_liberty = sigError_max_liberty)
   } else {
     datain$LsigError_init       <- LsigError
     datain$LsigError_prior_mean <- LsigError
