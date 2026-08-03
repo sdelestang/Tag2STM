@@ -327,7 +327,7 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
       cat("  ", sum(K == 0), " animals with NO opportunity (no growth ",
           "information; useful only for measurement error)\n", sep = "")
     }
-    if (TemporalGrowth) {
+    if (TemporalGrowth && !period_mode) {
       cat("Supported years: ", sum(datain$yr_supported), " of ", nyears,
           " (min_support = ", min_support, ")\n", sep = "")
     }

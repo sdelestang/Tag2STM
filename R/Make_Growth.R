@@ -15,14 +15,8 @@
 #' @param datain Data list. Optional here: if omitted (\code{NULL}, the
 #'   default), the function falls back to whatever \code{datain} object
 #'   already exists in \code{.GlobalEnv} — consistent with the original
-#'   "must be in calling environment" convention, e.g. calling
-#'   \code{make_growmod_obj(pin = pin, map = map)} with \code{datain} already
-#'   assigned globally works exactly as before. If supplied, it is assigned
+#'   "must be in calling environment" convention. If supplied, it is assigned
 #'   into \code{.GlobalEnv}, overwriting any existing global \code{datain}.
-#'   When \code{TemporalGrowth = TRUE} is in effect, whichever \code{datain}
-#'   is ultimately in effect must contain \code{nyears}, \code{relyr}, and
-#'   \code{yr_supported} (see \code{\link{growmod}},
-#'   \code{\link{add_year_support}}).
 #' @param map Optional parameter map, typically from \code{\link{Makemap}}.
 #' @param random Optional random effects.
 #' @param Like Integer. Likelihood form passed through to \code{growmod}
@@ -30,15 +24,24 @@
 #'
 #' @details
 #' **Dispatch logic:** \code{pin} carries a \code{TemporalGrowth} attribute
-#' set by \code{\link{Makepin}}. When \code{TRUE}, this function calls
-#' \code{growmod(..., TemporalGrowth = TRUE)} and additionally checks that
-#' \code{sum(datain$yr_supported)} is consistent with the length of
-#' \code{pin$Sraw} (i.e. \code{sum(datain$yr_supported) ==
-#' length(pin$Sraw) + 1}), stopping with an informative error if not — this
-#' is meant to catch the case where \code{pin} and \code{datain} were built
-#' from mismatched \code{tdat}/support-threshold versions (e.g. \code{pin}
-#' built before \code{relyr}/\code{recyr} were finalised, or before/after a
-#' change to \code{min_support} in \code{\link{add_year_support}}).
+#' set by \code{\link{Makepin}}. When \code{TRUE}, this function checks that
+#' \code{datain} carries the fields \code{growmod}'s temporal branch needs,
+#' and that \code{length(pin$Sraw)} is consistent with them — meant to catch
+#' \code{pin} and \code{datain} built from mismatched \code{tdat} versions or
+#' settings.
+#'
+#' Those requirements differ by mode. With \strong{annual} effects
+#' (\code{datain$period_mode} absent or \code{FALSE}), \code{growmod} needs
+#' \code{nyears}, \code{relyr} and \code{yr_supported}, and \code{Sraw} has
+#' length \code{sum(yr_supported) - 1}. With \strong{period} effects
+#' (\code{period_mode = TRUE}, set by \code{\link{Makedata}} when
+#' \code{period = TRUE}), it needs \code{nyears}, \code{relyr},
+#' \code{year_period} and \code{nperiods} instead, and \code{Sraw} has length
+#' \code{nperiods - 1}. \code{yr_supported} is deliberately NOT required in
+#' period mode: support is a property of the period, not of the individual
+#' year, so \code{\link{Makedata}} does not call
+#' \code{\link{add_year_support}} at all in that mode and the field
+#' legitimately does not exist.
 #'
 #' The model function is copied into \code{.GlobalEnv} before
 #' \code{MakeADFun()} is called, since RTMB's automatic differentiation
@@ -72,22 +75,51 @@ make_growmod_obj <- function(pin, datain = NULL, map = list(), random = NULL, Li
   useVar <- isTRUE(attr(pin, "TemporalGrowth"))
 
   if (useVar) {
-    if (is.null(datain) || is.null(datain$nyears) || is.null(datain$relyr) ||
-        is.null(datain$yr_supported)) {
-      stop("pin was built with Makepin(TemporalGrowth = TRUE), but datain is missing ",
-           "'nyears', 'relyr', and/or 'yr_supported'. growmod(..., TemporalGrowth = TRUE) ",
-           "requires all three -- run datain <- add_year_support(datain) if yr_supported is missing.")
+    if (is.null(datain)) {
+      stop("pin was built with Makepin(TemporalGrowth = TRUE), but no datain is ",
+           "available (neither supplied nor present in .GlobalEnv).")
     }
     if (is.null(pin$Sraw)) {
       stop("pin has attr(pin, 'TemporalGrowth') == TRUE but no Sraw element. ",
            "Rebuild pin with Makepin(TemporalGrowth = TRUE).")
     }
-    n_supported <- sum(datain$yr_supported)
-    if (n_supported != length(pin$Sraw) + 1) {
-      stop("sum(datain$yr_supported) (", n_supported, ") does not match length(pin$Sraw) + 1 (",
-           length(pin$Sraw) + 1, "). pin and datain appear to be out of sync — ",
-           "rebuild pin with Makepin(TemporalGrowth = TRUE) using this exact datain ",
-           "(after add_year_support()), or re-run add_year_support() if datain changed.")
+
+    period_mode <- isTRUE(datain$period_mode)
+
+    # Required fields differ by mode -- see @details. yr_supported is not a
+    # period-mode concept and Makedata does not create it there.
+    need <- if (period_mode) {
+      c("nyears", "relyr", "year_period", "nperiods")
+    } else {
+      c("nyears", "relyr", "yr_supported")
+    }
+    miss <- need[vapply(need, function(nm) is.null(datain[[nm]]), logical(1))]
+    if (length(miss)) {
+      stop("pin was built with Makepin(TemporalGrowth = TRUE) and datain is in ",
+           if (period_mode) "PERIOD" else "ANNUAL", " mode, but datain is missing: ",
+           paste(sQuote(miss), collapse = ", "), ". Rebuild datain with Makedata(",
+           if (period_mode) "..., period = TRUE)" else "..., TemporalGrowth = TRUE)",
+           ".")
+    }
+
+    # Sraw length: nperiods - 1 in period mode, sum(yr_supported) - 1 otherwise.
+    if (period_mode) {
+      if (datain$nperiods != length(pin$Sraw) + 1) {
+        stop("datain$nperiods (", datain$nperiods, ") does not match ",
+             "length(pin$Sraw) + 1 (", length(pin$Sraw) + 1, "). pin and datain ",
+             "are out of sync -- rebuild pin with Makepin() using this exact datain. ",
+             "Note that switching between period = TRUE and FALSE, or changing the ",
+             "number of periods, changes the shape of Sraw, so pin, map and the ",
+             "model object must all be rebuilt.")
+      }
+    } else {
+      n_supported <- sum(datain$yr_supported)
+      if (n_supported != length(pin$Sraw) + 1) {
+        stop("sum(datain$yr_supported) (", n_supported, ") does not match length(pin$Sraw) + 1 (",
+             length(pin$Sraw) + 1, "). pin and datain appear to be out of sync — ",
+             "rebuild pin with Makepin(TemporalGrowth = TRUE) using this exact datain ",
+             "(after add_year_support()), or re-run add_year_support() if datain changed.")
+      }
     }
   }
 
