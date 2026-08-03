@@ -43,6 +43,16 @@
 #'   Default 0 (no floor). See \code{\link{growmod}}.
 #' @param n_pmoult1 Integer, number of smallest length bins with Pmoult
 #'   hard-fixed at exactly 1. Default 1.
+#' @param Pmoult_prior_mean Length-2 numeric, the centre of a weak normal
+#'   prior on the Pmoult logistic (intercept, slope). Default
+#'   \code{c(qlogis(0.95), 0)} -- a flat curve resting near 1. This exists
+#'   because Pmoult = 1 lies at the edge of the parameter space in logit
+#'   terms, so a species that moults every opportunity leaves the logistic
+#'   unidentified and the optimiser free to wander.
+#' @param Pmoult_prior_sd Length-2 numeric, the prior sd (intercept, slope).
+#'   Default \code{c(3, 0.1)} -- deliberately weak, so a genuinely declining
+#'   curve overrides it at negligible cost. Set to \code{c(Inf, Inf)} to
+#'   disable.
 #' @param ident_wt Numeric, weight on the internal identification mixture.
 #'   Default 1. Set to 0 for a pure marginal fit.
 #' @param use_individual_error Logical, default \code{FALSE}.
@@ -107,6 +117,8 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
                      LsigError = NULL,
                      mpy = 0,
                      n_pmoult1 = 1,
+                     Pmoult_prior_mean = c(qlogis(0.95), 0),
+                     Pmoult_prior_sd = c(3, 0.1),
                      ident_wt = 1,
                      use_individual_error = FALSE,
                      suppress = FALSE,
@@ -219,6 +231,8 @@ Makedata <- function(tdat, bins, ntsteps, goodts, M,
     TemporalGrowth       = TemporalGrowth,
     mpy                  = mpy,
     n_pmoult1            = n_pmoult1,
+    Pmoult_prior_mean    = Pmoult_prior_mean,
+    Pmoult_prior_sd      = Pmoult_prior_sd,
     ident_wt             = ident_wt,
     use_individual_error = use_individual_error,
     suppress             = suppress,

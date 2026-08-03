@@ -115,6 +115,12 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## Period mode: S is common within period rather than unique per year.
   ## Plain data / structural switch, decided at trace time.
   if (is.null(datain$period_mode))         datain$period_mode <- FALSE
+  ## Weak prior on the Pmoult logistic, so the curve rests on a sensible
+  ## value rather than drifting to an unidentified boundary when the data
+  ## do not constrain it. Centred on a flat curve near 1 (slope 0). Set
+  ## Pmoult_prior_sd to c(Inf, Inf) to switch it off entirely.
+  if (is.null(datain$Pmoult_prior_mean))   datain$Pmoult_prior_mean <- c(qlogis(0.95), 0)
+  if (is.null(datain$Pmoult_prior_sd))     datain$Pmoult_prior_sd   <- c(3, 0.1)
   ## PenSigError's centre and width. Previously hardcoded to
   ## log(2.0) / 0.5, which silently pulled toward 2 mm for any species
   ## whose measurement error was not 2 mm. Now supplied by add_sigError()
@@ -554,8 +560,39 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
                                       growthmat[goodts, 1:(nlbin - 1)])^2)
   drift_penalty  <- 0.1 * sum(log(1 + exp(-(growth_vecpar + 10))))
 
+  ## --- Weak prior on the Pmoult logistic ----------------------------------
+  ## Pmoult = 1 sits at the EDGE of the parameter space in logit terms
+  ## (plogis(a) -> 1 only as a -> Inf), so whenever the data want a flat
+  ## curve at 1 the likelihood is flat in (a, b) and the optimiser wanders
+  ## to arbitrary values -- lobster fitted a = 0.77, b = 1.04, which puts
+  ## the logistic argument above 50 at the smallest bin. Every large
+  ## positive combination fits identically, so the parameters carry no
+  ## information and their standard errors are meaningless.
+  ##
+  ## This prior gives the curve somewhere to rest instead: intercept
+  ## centred on qlogis(0.95) and slope on 0, i.e. flat and near 1. It is
+  ## deliberately weak (default sd 3 on the intercept, 0.1 per mm on the
+  ## slope, roughly 10 logit units across a 100 mm size range), so data
+  ## that genuinely want a declining curve override it easily -- the
+  ## deep-sea crab slope of -0.166 is 1.7 sd, costing ~1.4 against the
+  ## several hundred points that fit prefers. It is an ANCHOR for the
+  ## unidentified case, not a constraint on the identified one.
+  ##
+  ## Summed over goodts rows only: other rows are never evaluated by
+  ## Pmoult_fn and are fixed by Makemap, so penalising them would add a
+  ## constant and nothing else.
+  ##
+  ## Note the prior is on the logistic BEFORE the mpy floor is applied, so
+  ## with mpy > 0 the resting Pmoult is above 0.95 accordingly.
+  PenPmoult <- 0
+  for (ns in goodts) {
+    PenPmoult <- PenPmoult -
+      dnorm(Pmoult_par[ns, 1], Pmoult_prior_mean[1], Pmoult_prior_sd[1], log = TRUE) -
+      dnorm(Pmoult_par[ns, 2], Pmoult_prior_mean[2], Pmoult_prior_sd[2], log = TRUE)
+  }
+
   TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
-    smooth_penalty + drift_penalty
+    smooth_penalty + drift_penalty + PenPmoult
 
   if (TemporalGrowth) {
     ## Spen is the period vector in period mode and the year vector
@@ -583,6 +620,7 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   }
   REPORT(Pmoult_vec)
   REPORT(Pmoult_par)
+  REPORT(PenPmoult)
   REPORT(mpy_floor)
   if (suppress) {
     ## r0_p    : recovery multiplier at zero liberty (1 = no effect)
