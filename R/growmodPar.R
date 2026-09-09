@@ -163,6 +163,31 @@
 #' only ever reads \code{growthmat[ns, fm]} and has no knowledge of how
 #' that value was built.
 #'
+#' \strong{4. Soft anchor prior on \code{Growth_par}'s \code{log(P3)}
+#' (\code{datain$GrowthP3_prior_mean}/\code{GrowthP3_prior_sd}).} When a
+#' fit wants \code{grow2} (the large-size logistic) to be essentially
+#' flat -- no further real decline in growth increment above \code{P2},
+#' just a plateau -- \code{P3} becomes unidentified in the same direction
+#' \code{Pmoult_par} can be (see point 1's floor discussion): any
+#' sufficiently large \code{P3} gives an indistinguishable curve, so
+#' nothing stops the optimiser pushing it to an arbitrary, numerically
+#' awkward extreme (observed in practice: \code{log(P3) ~ 14.2}, i.e.
+#' \code{P3 ~ 1.5} million, against an \code{lbin} range on the order of
+#' 100). Unlike the \code{Pmoult_par} case this is NOT a diagnosed
+#' problem -- \code{P3} wanting to be very large is a perfectly fine,
+#' well-fitting curve, not a symptom that something is broken -- it is
+#' purely a resting place: \code{PenGrowthP3} is centred at 20x the
+#' observed \code{lbin} range with a deliberately generous default sd (3
+#' on the log scale, roughly a factor of 20 either side), so it costs the
+#' fit almost nothing if \code{P3} genuinely wants to sit at the anchor or
+#' below it, while stopping an unbounded climb that buys no improvement in
+#' fit and leaves the Hessian poorly scaled. \code{P1} and \code{P5} are
+#' deliberately left unpenalised: a small, sharp \code{P5} (a near-instant
+#' swap between the two logistics) is itself a perfectly ordinary,
+#' well-identified fit, not a boundary-chasing symptom, so it needs no
+#' anchor. Set \code{datain$GrowthP3_prior_sd <- Inf} to switch this prior
+#' off entirely.
+#'
 #' @return Scalar total negative log-likelihood. Key \code{REPORT()}
 #'   objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
 #'   (per-animal identification log-densities, 0 where an animal had no
@@ -172,8 +197,9 @@
 #'   \code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
 #'   row, for diagnostics), \code{Growth_par} and its exponentiated/derived
 #'   per-row values \code{Growth_Amax}, \code{Growth_P1}, \code{Growth_P2},
-#'   \code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows), and
-#'   \code{S} when \code{TemporalGrowth = TRUE}.
+#'   \code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows),
+#'   \code{PenGrowthP3} (the soft anchor prior's contribution, for
+#'   diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
 #'
 #' @export
 growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
@@ -207,6 +233,17 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## before that existed.
   if (is.null(datain$LsigError_prior_mean)) datain$LsigError_prior_mean <- log(2.0)
   if (is.null(datain$LsigError_prior_sd))   datain$LsigError_prior_sd   <- 0.5
+  ## Soft anchor prior on Growth_par's log(P3) (the large-size logistic
+  ## scale) -- see the growth-at-length block and PenGrowthP3 below for the
+  ## full rationale. Centred well beyond the observed size range (20x the
+  ## lbin span) so a genuinely flat plateau costs almost nothing, but wide
+  ## enough (default sd 3, i.e. a factor of ~20 either side) that it barely
+  ## constrains anything short of that. Set GrowthP3_prior_sd to Inf to
+  ## switch it off entirely.
+  if (is.null(datain$GrowthP3_prior_mean)) {
+    datain$GrowthP3_prior_mean <- log(diff(range(datain$lbin)) * 20)
+  }
+  if (is.null(datain$GrowthP3_prior_sd))    datain$GrowthP3_prior_sd   <- 3
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -708,8 +745,41 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       dnorm(Pmoult_par[ns, 2], Pmoult_prior_mean[2], Pmoult_prior_sd[2], log = TRUE)
   }
 
+  ## --- Soft anchor prior on Growth_par's log(P3) --------------------------
+  ## P3 is the large-size logistic scale in the growth-at-length curve (see
+  ## the growth-at-length block above). When the data want grow2 to be
+  ## essentially flat above P2 -- i.e. no real further decline in growth
+  ## increment with size, just a plateau -- P3 is unidentified in the same
+  ## direction Pmoult was above: any sufficiently large value gives an
+  ## indistinguishable curve, so nothing stops the optimiser pushing it to
+  ## an arbitrarily, numerically awkward extreme (observed: log(P3) = 14.2,
+  ## i.e. P3 ~ 1.5 million, versus a lbin range of the order of 100). That
+  ## costs iterations and leaves an ill-conditioned Hessian for no fit
+  ## benefit, since P3 = 3000 and P3 = 1.5 million produce visually
+  ## identical "flat" curves over the observed size range.
+  ##
+  ## This is deliberately NOT a diagnosed identifiability problem the way
+  ## PenPmoult was (P3 wanting to go very large is a perfectly fine fit,
+  ## not a symptom of something wrong) -- it is purely a resting place: if
+  ## P3 wants to be very large, this gives it somewhere finite and
+  ## well-scaled to land instead of an unbounded climb. Centred at 20x the
+  ## observed lbin range (datain$GrowthP3_prior_mean, set in the defaults
+  ## block above) with a deliberately generous sd (default 3 on the log
+  ## scale, i.e. roughly a factor of 20 either side), so a curve that
+  ## genuinely wants a smaller, identified P3 (an actual second decline)
+  ## overrides this with little cost, and one that wants "flatter than the
+  ## anchor" simply isn't asked to pay for going further than it needs to.
+  ##
+  ## Summed over goodts rows only, same reasoning as PenPmoult. Set
+  ## datain$GrowthP3_prior_sd <- Inf to switch this off entirely.
+  PenGrowthP3 <- 0
+  for (ns in goodts) {
+    PenGrowthP3 <- PenGrowthP3 -
+      dnorm(Growth_par[ns, 4], GrowthP3_prior_mean, GrowthP3_prior_sd, log = TRUE)
+  }
+
   TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
-    PenPmoult
+    PenPmoult + PenGrowthP3
 
   if (TemporalGrowth) {
     ## Spen is the period vector in period mode and the year vector
@@ -738,6 +808,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(Pmoult_vec)
   REPORT(Pmoult_par)
   REPORT(PenPmoult)
+  REPORT(PenGrowthP3)
   REPORT(mpy_floor)
   ## Growth_par plus its exponentiated/derived per-row values, for
   ## diagnostics -- same pattern as Pmoult_par/Pmoult_vec above. 0 on
