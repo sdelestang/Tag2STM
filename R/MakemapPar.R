@@ -1,3 +1,9 @@
+## MakemapPar pairs with growmodPar/MakepinPar: it adds the Growth_par
+## mapping block (see "Change from previous version (2)" below) instead of
+## the old growth_vecpar turnon sweep. Kept under a separate Par name so it
+## can be fitted and compared directly against the original Makemap/
+## growmod/Makepin, rather than replacing them.
+
 ## Change from previous version (1):
 ##
 ## Pmoult_par was excluded from the growth_vecpar-style `turnon` mapping
@@ -62,7 +68,7 @@
 #' \code{estTemporalGrowth} behaviour -- unchanged. This version adds
 #' explicit handling for \code{Pmoult_par} and \code{Growth_par}, both
 #' \code{ntsteps x n} matrices rather than flat vectors -- see
-#' \code{\link{Makepin}}.)
+#' \code{\link{MakepinPar}}.)
 #'
 #' @param pin List, from \code{Makepin}.
 #' @param re Logical, as before.
@@ -83,8 +89,8 @@
 #'   regardless of this argument, since \code{growmod} never evaluates them.
 #' @param Growth_shared Logical (default \code{FALSE}). Same idea as
 #'   \code{Pmoult_shared}, applied to the 5-column \code{Growth_par}
-#'   double-logistic growth-at-length curve (see \code{\link{growmod}}
-#'   and \code{\link{Makepin}}). \code{FALSE} (default) frees each
+#'   double-logistic growth-at-length curve (see \code{\link{growmodPar}}
+#'   and \code{\link{MakepinPar}}). \code{FALSE} (default) frees each
 #'   \code{goodts} row's 5 parameters (\code{Amax}, \code{P1}, \code{P2},
 #'   \code{P3}, \code{P5}) independently, which is generally feasible now
 #'   that the growth curve is 5 parameters per row rather than
@@ -97,8 +103,8 @@
 #'
 #' @export
 MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
-                    Pmoult_shared = FALSE, Growth_shared = FALSE,
-                    estSuppress = TRUE, estSlope = TRUE, estSigError = FALSE) {
+                     Pmoult_shared = FALSE, Growth_shared = FALSE,
+                     estSuppress = TRUE, estSlope = TRUE, estSigError = FALSE) {
 
   ## map is built up incrementally, one parameter (or parameter group) at
   ## a time, below -- there is no longer a generic catch-all sweep (see
@@ -188,8 +194,8 @@ MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
   if (Growth_shared) {
     # every goodts row -> the same ncol_growth levels
     Growth_map[datain$goodts, ] <- matrix(1:ncol_growth,
-                                          nrow = length(datain$goodts),
-                                          ncol = ncol_growth, byrow = TRUE)
+                                           nrow = length(datain$goodts),
+                                           ncol = ncol_growth, byrow = TRUE)
   } else {
     free_idx <- 0
     for (ns in datain$goodts) {

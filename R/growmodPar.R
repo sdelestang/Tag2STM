@@ -1,4 +1,14 @@
-#' Tag-Recapture Growth Model with Size Transition Matrices
+#' Tag-Recapture Growth Model with Size Transition Matrices (parametric
+#' growth-curve variant)
+#'
+#' \code{growmodPar} is identical to \code{growmod} except for how the
+#' growth-at-length curve is built: a 5-parameter-per-season double
+#' logistic (\code{Growth_par}) in place of the \code{nlbin}-parameter
+#' random walk (\code{growth_vecpar}). Kept under a separate \code{Par}
+#' name -- alongside \code{MakepinPar}/\code{MakemapPar} -- specifically so
+#' both growth formulations can be fitted and compared side by side against
+#' the original \code{growmod}/\code{Makepin}/\code{Makemap}, rather than
+#' replacing them outright.
 #'
 #' Estimates flexible, data-driven growth patterns from tag-recapture data by
 #' constructing size transition matrices (STMs) that describe how animals grow
@@ -166,7 +176,7 @@
 #'   \code{S} when \code{TemporalGrowth = TRUE}.
 #'
 #' @export
-growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
+growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
 
   ## --- Backwards compatibility -------------------------------------------
   ## Old aux_* fields are no longer consumed at all. mpy/ident_wt/
@@ -401,6 +411,11 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   }
 
   ## --- Build STM(s) -------------------------------------------------------
+  ## Factored into a helper taking the Pmoult function to use, so the normal
+  ## / suppressed / compensated arrays are built by identical code and
+  ## cannot drift apart. (Divergence between two hand-maintained copies of
+  ## this construction is exactly what produced a flat growth trajectory in
+  ## build_lenout_envelope() previously.)
   make_stm <- function(pm_fn) {
     if (TemporalGrowth) {
       A <- array(0, c(nlbin, nlbin, ntsteps, nyears))
@@ -582,7 +597,7 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       for (ts in 1:length(tstepsvec)) {
         if (tstepsvec[ts] %in% goodts) {
           tmpstm <- if (TemporalGrowth) stm[, , tstepsvec[ts], yearvec[ts]]
-          else stm[, , tstepsvec[ts]]
+                    else stm[, , tstepsvec[ts]]
           lens <- (1 - r_vec[r]) * lens + r_vec[r] * (tmpstm %*% lens)
         }
       }
@@ -645,6 +660,18 @@ growmod <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   sigGrowvec <- exp(LsigGrow) * gseq
 
   ## --- Penalties ------------------------------------------------------------
+  ## smooth_penalty and drift_penalty are gone along with growth_vecpar:
+  ## both existed purely to regularise the old nlbin-parameter-per-row
+  ## random walk (smooth_penalty against neighbour-to-neighbour noise,
+  ## drift_penalty against the softplus increments collapsing to zero).
+  ## The double-logistic growth curve is smooth and bounded by
+  ## construction (see the growth-at-length block above), so neither is
+  ## needed. datain$smoother is consequently unused by this function; it
+  ## can be dropped from Makedata/Makepin, or left in place harmlessly. If
+  ## a fit shows Growth_par's scale parameters (P1, P3, P5) wandering to
+  ## extreme values on a sparse dataset, a weak prior in the same style as
+  ## PenPmoult below would be the natural fix -- not added here since it
+  ## hasn't been needed yet.
   PenSigError    <- -dnorm(LsigError, LsigError_prior_mean,
                            LsigError_prior_sd, log = TRUE)
   PenMerrorRel   <- -sum(dnorm(0, MerrorRel, exp(LMerrorRelsigma), log = TRUE))

@@ -1,4 +1,11 @@
-#' Create Initial Parameter List for Tag-Recapture Growth Model
+#' Create Initial Parameter List for Tag-Recapture Growth Model (parametric
+#' growth-curve variant)
+#'
+#' \code{MakepinPar} pairs with \code{\link{growmodPar}}: it builds
+#' \code{Growth_par} (the double-logistic growth-at-length curve) instead
+#' of \code{growth_vecpar}. Kept under a separate \code{Par} name so it can
+#' be fitted and compared directly against the original \code{Makepin}/
+#' \code{growmod}, rather than replacing them.
 #'
 #' Generates a list of initial parameter values (pin file) for fitting
 #' tag-recapture growth models using RTMB/TMB. See previous version's
@@ -7,7 +14,7 @@
 #'
 #' @param avgrowth Numeric, default 2. Starting value (mm) for the maximum
 #'   growth increment (\code{Amax}) in the \code{Growth_par} double
-#'   logistic used by \code{\link{growmod}} -- used directly as the
+#'   logistic used by \code{\link{growmodPar}} -- used directly as the
 #'   \code{log(Amax)} starting value for every row of \code{Growth_par}.
 #'   (Previously accepted but not implemented, retained only for backward
 #'   compatibility; it now does something.)
@@ -25,7 +32,7 @@
 #' @details
 #' \strong{Growth_par starting values.} The four shape parameters of the
 #' double logistic (\code{P1}, \code{P2}, \code{P3}, \code{P5} -- see
-#' \code{\link{growmod}} for the curve itself) are seeded from
+#' \code{\link{growmodPar}} for the curve itself) are seeded from
 #' \code{datain$lbin} rather than hardcoded, so they scale sensibly
 #' whatever species/size range is in use:
 #' \itemize{
@@ -45,7 +52,7 @@
 #'     log scale.
 #' }
 #' Every row of \code{Growth_par} is initialised identically (same
-#' convention as \code{Pmoult_par}); \code{\link{Makemap}} decides which
+#' convention as \code{Pmoult_par}); \code{\link{MakemapPar}} decides which
 #' rows are estimated independently versus fixed/shared.
 #'
 #' @return A named list of initial parameter values. Key elements:
@@ -53,30 +60,30 @@
 #'   \item{Growth_par}{Numeric MATRIX, \code{ntsteps x 5} -- one
 #'     5-parameter double-logistic growth-at-length curve per season,
 #'     columns \code{log(Amax)}, \code{P2}, \code{log(P1)}, \code{log(P3)},
-#'     \code{log(P5)} (see \code{\link{growmod}} for the curve itself and
+#'     \code{log(P5)} (see \code{\link{growmodPar}} for the curve itself and
 #'     Details above for the starting values). Replaces the former
 #'     \code{growth_vecpar} (an \code{nlbin * ntsteps}-length per-bin
 #'     random walk). \code{Makemap} determines which rows are estimated
-#'     independently versus fixed/shared (see \code{\link{Makemap}}).}
+#'     independently versus fixed/shared (see \code{\link{MakemapPar}}).}
 #'   \item{Pmoult_par}{Numeric MATRIX, \code{ntsteps x 2} (intercept, slope
 #'     columns) -- one logistic P(moult)-by-size curve per season:
 #'     \code{Pmoult(ns, fm) = plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] *
 #'     lbin[fm])}, further reparameterised inside \code{growmod} to
 #'     asymptote at \code{mpy_floor[ns]} rather than 0 when
-#'     \code{datain$mpy > 0} -- see \code{\link{growmod}}. Every row is
+#'     \code{datain$mpy > 0} -- see \code{\link{growmodPar}}. Every row is
 #'     initialised to the same starting values, \code{c(0.756, -0.0120)}.
 #'     \code{Makemap} determines which rows are estimated independently
-#'     versus fixed/shared (see \code{\link{Makemap}}).}
+#'     versus fixed/shared (see \code{\link{MakemapPar}}).}
 #'   \item{mpy_split_par}{Only present when \code{length(datain$goodts) > 1}.
 #'     Numeric vector of length \code{length(datain$goodts) - 1}, initialised
 #'     to all zeros (an exactly even split of \code{datain$mpy} across
 #'     seasons at the start of optimisation). Estimated by \code{growmod}
-#'     via a softmax transform -- see \code{\link{growmod}} for the
+#'     via a softmax transform -- see \code{\link{growmodPar}} for the
 #'     minimum-moults-per-year floor this feeds into.}
 #'   \item{Sraw}{Only present when \code{TemporalGrowth = TRUE}, as before.}
 #' }
 #'
-#' @seealso \code{\link{growmod}}, \code{\link{Makemap}}
+#' @seealso \code{\link{growmodPar}}, \code{\link{MakemapPar}}
 #' @export
 MakepinPar <- function(avgrowth = 2,
                     LsigError = NULL,
@@ -119,7 +126,7 @@ MakepinPar <- function(avgrowth = 2,
     # must be an actual matrix, not a length-5 vector. Every row starts
     # identical; Makemap decides which rows are freed independently.
     Growth_par = matrix(rep(growth_start, each = ntsteps),
-                        nrow = ntsteps, ncol = 5),
+                         nrow = ntsteps, ncol = 5),
     LsigError = LsigError,
     LsigGrow = LsigGrow,
     MerrorRel = rep(0, nobs),
@@ -130,7 +137,7 @@ MakepinPar <- function(avgrowth = 2,
     # this must be an actual matrix, not a length-2 vector. Every row
     # starts identical; Makemap decides which rows are freed independently.
     Pmoult_par = matrix(rep(c(0.756, -0.0120), each = ntsteps),
-                        nrow = ntsteps, ncol = 2)
+                         nrow = ntsteps, ncol = 2)
   )
 
   # Estimated split of datain$mpy across goodts seasons (softmax
