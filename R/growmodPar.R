@@ -181,12 +181,36 @@
 #' on the log scale, roughly a factor of 20 either side), so it costs the
 #' fit almost nothing if \code{P3} genuinely wants to sit at the anchor or
 #' below it, while stopping an unbounded climb that buys no improvement in
-#' fit and leaves the Hessian poorly scaled. \code{P1} and \code{P5} are
-#' deliberately left unpenalised: a small, sharp \code{P5} (a near-instant
-#' swap between the two logistics) is itself a perfectly ordinary,
-#' well-identified fit, not a boundary-chasing symptom, so it needs no
-#' anchor. Set \code{datain$GrowthP3_prior_sd <- Inf} to switch this prior
-#' off entirely.
+#' fit and leaves the Hessian poorly scaled. \code{P1} is deliberately left
+#' unpenalised: nothing analogous to \code{P3}'s "wants to run to Inf"
+#' failure mode applies to it, so it needs no anchor. Set
+#' \code{datain$GrowthP3_prior_sd <- Inf} to switch this prior off
+#' entirely.
+#'
+#' \strong{5. Soft anchor prior on \code{Growth_par}'s \code{log(P5)}
+#' (\code{datain$GrowthP5_prior_mean}/\code{GrowthP5_prior_sd}).} Same idea
+#' as point 4, mirrored: \code{P5} is the swap/blend transition width, and
+#' its runaway direction is the opposite of \code{P3}'s -- \code{P5 -> 0}
+#' (an infinitely sharp, near step-function swap) rather than
+#' \code{P5 -> Inf}. A sharp swap is itself a perfectly ordinary,
+#' well-identified feature, not a symptom of anything wrong -- but pushed
+#' far enough it produces the same practical cost as \code{P3}'s runaway:
+#' \code{xdev / P5} becomes numerically huge for any length away from
+#' \code{P2}, which is hard on conditioning even when the resulting
+#' probabilities stay sensible, and \code{P3}/\code{P5} can trade off
+#' against each other (an extreme pairing of both reproducing the same
+#' effective curve as more moderate values of each) -- observed in
+#' practice: fitting \code{GrowthP3} alone pulled the unconstrained
+#' \code{P5 ~ 0.0016} back up to \code{P5 ~ 1.35} without \code{P5} being
+#' penalised directly, exactly the kind of ridge this second anchor is
+#' meant to further discourage. Centred at the same scale \code{Makepin}
+#' uses to start \code{P5} (\code{lbin} span / 20) rather than at some
+#' arbitrarily small or large constant, so the anchor doesn't itself argue
+#' for a sharper or gentler transition than a reasonable default guess --
+#' only against drifting far from it. Same deliberately generous default
+#' sd (3 on the log scale) as \code{GrowthP3}. Set
+#' \code{datain$GrowthP5_prior_sd <- Inf} to switch this prior off
+#' entirely.
 #'
 #' @return Scalar total negative log-likelihood. Key \code{REPORT()}
 #'   objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
@@ -198,8 +222,9 @@
 #'   row, for diagnostics), \code{Growth_par} and its exponentiated/derived
 #'   per-row values \code{Growth_Amax}, \code{Growth_P1}, \code{Growth_P2},
 #'   \code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows),
-#'   \code{PenGrowthP3} (the soft anchor prior's contribution, for
-#'   diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
+#'   \code{PenGrowthP3}, \code{PenGrowthP5} (the two soft anchor priors'
+#'   contributions, for diagnostics), and \code{S} when
+#'   \code{TemporalGrowth = TRUE}.
 #'
 #' @export
 growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
@@ -244,6 +269,23 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     datain$GrowthP3_prior_mean <- log(diff(range(datain$lbin)) * 20)
   }
   if (is.null(datain$GrowthP3_prior_sd))    datain$GrowthP3_prior_sd   <- 3
+  ## Soft anchor prior on Growth_par's log(P5) (the swap/blend transition
+  ## width) -- see PenGrowthP5 below for the full rationale. Mirrors
+  ## GrowthP3's treatment but in the opposite direction: P5 -> 0 (an
+  ## infinitely sharp swap) is the runaway direction here, not P5 -> Inf.
+  ## Centred at the same scale Makepin uses as P5's starting value
+  ## (lbin span / 20) -- a fairly sharp transition already -- rather than
+  ## at some arbitrary small constant, so the anchor doesn't itself imply
+  ## either a sharp or gradual transition is preferred. Same default sd (3
+  ## on the log scale) as GrowthP3, for the same reason: wide enough that
+  ## a genuinely sharp swap (small P5) is barely constrained, but present
+  ## to stop an unbounded slide toward numerically extreme values (e.g.
+  ## the P5 ~ 0.0016 seen before GrowthP3 was anchored). Set
+  ## GrowthP5_prior_sd to Inf to switch it off entirely.
+  if (is.null(datain$GrowthP5_prior_mean)) {
+    datain$GrowthP5_prior_mean <- log(diff(range(datain$lbin)) / 20)
+  }
+  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 3
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -778,8 +820,43 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       dnorm(Growth_par[ns, 4], GrowthP3_prior_mean, GrowthP3_prior_sd, log = TRUE)
   }
 
+  ## --- Soft anchor prior on Growth_par's log(P5) --------------------------
+  ## P5 is the swap/blend transition width (see the growth-at-length block
+  ## above): how quickly the curve moves from the P1-scale logistic to the
+  ## P3-scale one, centred at P2. The runaway direction here is the mirror
+  ## image of P3's: P5 -> 0 (an infinitely sharp, near step-function swap)
+  ## rather than P5 -> Inf. A very sharp swap is itself a perfectly
+  ## ordinary, well-identified feature -- not a symptom of anything wrong,
+  ## same as noted for P3 -- but pushed far enough it produces the same
+  ## practical cost as P3's runaway: near-zero P5 makes xdev/P5 numerically
+  ## huge for any length away from P2, which is hard on conditioning even
+  ## when the resulting probabilities are all still sensible, and in
+  ## practice P3 and P5 can trade off against each other (an extreme P3
+  ## paired with an extreme P5 reproducing the same effective curve as more
+  ## moderate values of both -- this is what pulled P5 down to ~0.0016
+  ## before GrowthP3 existed, and pulled it back to ~1.35 once GrowthP3
+  ## alone was anchored).
+  ##
+  ## Centred at the same scale Makepin starts P5 from (lbin span / 20,
+  ## datain$GrowthP5_prior_mean, set in the defaults block above) rather
+  ## than at some arbitrarily small or large constant, so the anchor
+  ## doesn't itself argue for a sharper or gentler transition than a
+  ## reasonable default guess -- only against drifting far from it. Same
+  ## deliberately generous default sd (3 on the log scale) as GrowthP3, so
+  ## a curve that genuinely wants a much sharper (or much gentler) swap
+  ## still gets there cheaply; this only bites once P5 is heading toward
+  ## the kind of extreme value that buys no visible improvement in the fit.
+  ##
+  ## Summed over goodts rows only, same reasoning as PenGrowthP3. Set
+  ## datain$GrowthP5_prior_sd <- Inf to switch this off entirely.
+  PenGrowthP5 <- 0
+  for (ns in goodts) {
+    PenGrowthP5 <- PenGrowthP5 -
+      dnorm(Growth_par[ns, 5], GrowthP5_prior_mean, GrowthP5_prior_sd, log = TRUE)
+  }
+
   TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
-    PenPmoult + PenGrowthP3
+    PenPmoult + PenGrowthP3 + PenGrowthP5
 
   if (TemporalGrowth) {
     ## Spen is the period vector in period mode and the year vector
@@ -809,6 +886,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(Pmoult_par)
   REPORT(PenPmoult)
   REPORT(PenGrowthP3)
+  REPORT(PenGrowthP5)
   REPORT(mpy_floor)
   ## Growth_par plus its exponentiated/derived per-row values, for
   ## diagnostics -- same pattern as Pmoult_par/Pmoult_vec above. 0 on
