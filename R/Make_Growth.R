@@ -53,7 +53,7 @@
 #' optimization step, so this is safe in the same way \code{Like} always was.
 #'
 #' @export
-make_growmod_obj <- function(pin, datain = NULL, map = list(), random = NULL, Like = 1) {
+make_growmod_obj <- function(pin, datain = NULL, map = list(), random = NULL, Like = 1, model='growmod') {
   if (!is.null(datain)) {
     assign("datain", datain, envir = .GlobalEnv)
   } else if (exists("datain", envir = .GlobalEnv)) {
