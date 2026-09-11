@@ -48,15 +48,20 @@ Details above for the starting values). Replaces the former
 \code{growth_vecpar} (an \code{nlbin * ntsteps}-length per-bin
 random walk). \code{Makemap} determines which rows are estimated
 independently versus fixed/shared (see \code{\link{MakemapPar}}).}
-\item{Pmoult_par}{Numeric MATRIX, \code{ntsteps x 2} (intercept, slope
-columns) -- one logistic P(moult)-by-size curve per season:
-\code{Pmoult(ns, fm) = plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] *
-    lbin[fm])}, further reparameterised inside \code{growmod} to
-asymptote at \code{mpy_floor[ns]} rather than 0 when
-\code{datain$mpy > 0} -- see \code{\link{growmodPar}}. Every row is
-initialised to the same starting values, \code{c(0.756, -0.0120)}.
-\code{Makemap} determines which rows are estimated independently
-versus fixed/shared (see \code{\link{MakemapPar}}).}
+#'   \item{Pmoult_par}{Numeric MATRIX, \code{ntsteps x 2} (L50, log-steepness
+columns) -- one logistic P(moult)-by-size curve per season, in the
+same functional form as the \code{Growth_par} growth-at-length
+curve's \code{P2}/\code{P1} pair (directly comparable inflection-size
+and steepness parameters):
+\code{xdev <- lbin[fm] - Pmoult_par[ns, 1]; Pmoult(ns, fm) <-
+    1 / (1 + exp(xdev / exp(Pmoult_par[ns, 2])))}, further
+reparameterised inside \code{growmod} to asymptote at
+\code{mpy_floor[ns]} rather than 0 when \code{datain$mpy > 0} -- see
+\code{\link{growmodPar}}. Every row is initialised to the same
+starting values, \code{c(median(datain$lbin), log(lbin_range / 10))}
+-- an inflection at the median observed size with a moderate
+steepness. \code{Makemap} determines which rows are estimated
+independently versus fixed/shared (see \code{\link{MakemapPar}}).}
 \item{mpy_split_par}{Only present when \code{length(datain$goodts) > 1}.
 Numeric vector of length \code{length(datain$goodts) - 1}, initialised
 to all zeros (an exactly even split of \code{datain$mpy} across
