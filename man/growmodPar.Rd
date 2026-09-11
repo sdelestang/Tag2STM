@@ -25,10 +25,8 @@ objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
 \code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
 row, for diagnostics), \code{Growth_par} and its exponentiated/derived
 per-row values \code{Growth_Amax}, \code{Growth_P1}, \code{Growth_P2},
-\code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows),
-\code{PenGrowthP3}, \code{PenGrowthP5} (the two soft anchor priors'
-contributions, for diagnostics), and \code{S} when
-\code{TemporalGrowth = TRUE}.
+\code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows), and
+\code{S} when \code{TemporalGrowth = TRUE}.
 }
 \description{
 \code{growmodPar} is identical to \code{growmod} except for how the
@@ -187,53 +185,4 @@ downstream of \code{growthmat} (STM construction, the identification
 mixture, the average growth trajectory) is unchanged, since all of it
 only ever reads \code{growthmat[ns, fm]} and has no knowledge of how
 that value was built.
-
-\strong{4. Soft anchor prior on \code{Growth_par}'s \code{log(P3)}
-(\code{datain$GrowthP3_prior_mean}/\code{GrowthP3_prior_sd}).} When a
-fit wants \code{grow2} (the large-size logistic) to be essentially
-flat -- no further real decline in growth increment above \code{P2},
-just a plateau -- \code{P3} becomes unidentified in the same direction
-\code{Pmoult_par} can be (see point 1's floor discussion): any
-sufficiently large \code{P3} gives an indistinguishable curve, so
-nothing stops the optimiser pushing it to an arbitrary, numerically
-awkward extreme (observed in practice: \code{log(P3) ~ 14.2}, i.e.
-\code{P3 ~ 1.5} million, against an \code{lbin} range on the order of
-100). Unlike the \code{Pmoult_par} case this is NOT a diagnosed
-problem -- \code{P3} wanting to be very large is a perfectly fine,
-well-fitting curve, not a symptom that something is broken -- it is
-purely a resting place: \code{PenGrowthP3} is centred at 20x the
-observed \code{lbin} range with a deliberately generous default sd (3
-on the log scale, roughly a factor of 20 either side), so it costs the
-fit almost nothing if \code{P3} genuinely wants to sit at the anchor or
-below it, while stopping an unbounded climb that buys no improvement in
-fit and leaves the Hessian poorly scaled. \code{P1} is deliberately left
-unpenalised: nothing analogous to \code{P3}'s "wants to run to Inf"
-failure mode applies to it, so it needs no anchor. Set
-\code{datain$GrowthP3_prior_sd <- Inf} to switch this prior off
-entirely.
-
-\strong{5. Soft anchor prior on \code{Growth_par}'s \code{log(P5)}
-(\code{datain$GrowthP5_prior_mean}/\code{GrowthP5_prior_sd}).} Same idea
-as point 4, mirrored: \code{P5} is the swap/blend transition width, and
-its runaway direction is the opposite of \code{P3}'s -- \code{P5 -> 0}
-(an infinitely sharp, near step-function swap) rather than
-\code{P5 -> Inf}. A sharp swap is itself a perfectly ordinary,
-well-identified feature, not a symptom of anything wrong -- but pushed
-far enough it produces the same practical cost as \code{P3}'s runaway:
-\code{xdev / P5} becomes numerically huge for any length away from
-\code{P2}, which is hard on conditioning even when the resulting
-probabilities stay sensible, and \code{P3}/\code{P5} can trade off
-against each other (an extreme pairing of both reproducing the same
-effective curve as more moderate values of each) -- observed in
-practice: fitting \code{GrowthP3} alone pulled the unconstrained
-\code{P5 ~ 0.0016} back up to \code{P5 ~ 1.35} without \code{P5} being
-penalised directly, exactly the kind of ridge this second anchor is
-meant to further discourage. Centred at the same scale \code{Makepin}
-uses to start \code{P5} (\code{lbin} span / 20) rather than at some
-arbitrarily small or large constant, so the anchor doesn't itself argue
-for a sharper or gentler transition than a reasonable default guess --
-only against drifting far from it. Same deliberately generous default
-sd (3 on the log scale) as \code{GrowthP3}. Set
-\code{datain$GrowthP5_prior_sd <- Inf} to switch this prior off
-entirely.
 }

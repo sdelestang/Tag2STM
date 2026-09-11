@@ -249,11 +249,8 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## value rather than drifting to an unidentified boundary when the data
   ## do not constrain it. Centred on a flat curve near 1 (slope 0). Set
   ## Pmoult_prior_sd to c(Inf, Inf) to switch it off entirely.
-  if (is.null(datain$Pmoult_prior_mean)) {
-    datain$Pmoult_prior_mean <- c(max(datain$lbin) + 5 * diff(range(datain$lbin)),
-                                  log(diff(range(datain$lbin)) / 10))
-  }
-  if (is.null(datain$Pmoult_prior_sd))     datain$Pmoult_prior_sd   <- c(diff(range(datain$lbin)) * 3, 3)
+  if (is.null(datain$Pmoult_prior_mean))   datain$Pmoult_prior_mean <- c(qlogis(0.95), 0)
+  if (is.null(datain$Pmoult_prior_sd))     datain$Pmoult_prior_sd   <- c(3, 0.1)
   ## PenSigError's centre and width. Previously hardcoded to
   ## log(2.0) / 0.5, which silently pulled toward 2 mm for any species
   ## whose measurement error was not 2 mm. Now supplied by add_sigError()
@@ -397,12 +394,8 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## non-goodts rows or mpy = 0) reproduces the original unclamped logistic.
   Pmoult_fn <- function(ns, fm) {
     if (fm <= n_pmoult1) return(1)
-    fl    <- mpy_floor[ns]
-    L50   <- Pmoult_par[ns, 1]         # inflection size (mm) -- comparable to Growth_par's P2
-    Pscl  <- exp(Pmoult_par[ns, 2])    # steepness (mm), log scale -- comparable to Growth_par's P1
-    xdev  <- lbin[fm] - L50
-    p     <- 1 / (1 + exp(xdev / Pscl))
-    fl + (1 - fl) * p
+    fl <- mpy_floor[ns]
+    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] * lbin[fm])
   }
 
   ## --- Tagging-induced moult suppression ---------------------------------
