@@ -287,7 +287,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   if (is.null(datain$GrowthP5_prior_mean)) {
     datain$GrowthP5_prior_mean <- log(diff(range(datain$lbin)) / 40)
   }
-  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 1
+  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 10
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
