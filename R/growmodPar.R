@@ -285,9 +285,9 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## the P5 ~ 0.0016 seen before GrowthP3 was anchored). Set
   ## GrowthP5_prior_sd to Inf to switch it off entirely.
   if (is.null(datain$GrowthP5_prior_mean)) {
-    datain$GrowthP5_prior_mean <- log(diff(range(datain$lbin)) / 20)
+    datain$GrowthP5_prior_mean <- log(diff(range(datain$lbin)) / 40)
   }
-  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 3
+  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 1
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
