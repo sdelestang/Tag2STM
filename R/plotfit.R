@@ -62,7 +62,7 @@
 #' @importFrom dplyr mutate bind_rows
 #' @importFrom magrittr %>% %<>%
 #' @export
-plotfit <- function(datIn = tdat, mout = NULL) {
+plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL) {
   library(ggplot2)
   library(patchwork)
   library(viridis)
@@ -315,10 +315,12 @@ GH
 "
     final <- pa + pb + pc + pg + pd + pe + pf  + guide_area() +
       plot_layout(design = layout, guides = "collect") +
-      plot_annotation(tag_levels = "a", theme = theme(plot.margin = margin(2, 2, 2, 2))) &
+      plot_annotation(tag_levels = "a", caption = run_label,
+                      theme = theme(plot.margin = margin(2, 2, 2, 2),
+                                    plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))) &
       theme(legend.position    = "right",
-            legend.box         = "vertical",        # stack legends on top of each other
-            legend.direction   = "horizontal",      # each legend runs horizontally
+            legend.box         = "vertical",
+            legend.direction   = "horizontal",
             legend.margin      = margin(0, 0, 0, 0),
             legend.box.margin  = margin(0, 0, 0, 0),
             plot.margin        = margin(2, 4, 2, 4))
@@ -326,7 +328,9 @@ GH
   } else {
     final <- (pa + pb) / (pc + pd) / (pe + pf) +
       plot_layout(guides = "collect") +
-      plot_annotation(tag_levels = "a", theme = theme(plot.margin = margin(2, 2, 2, 2))) &
+      plot_annotation(tag_levels = "a", caption = run_label,
+                      theme = theme(plot.margin = margin(2, 2, 2, 2),
+                                    plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))) &
       theme(legend.position = "bottom",
             legend.margin    = margin(0, 0, 0, 0),
             legend.box.margin = margin(-5, 0, 0, 0),
