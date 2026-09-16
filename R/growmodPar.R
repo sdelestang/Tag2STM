@@ -249,8 +249,10 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## value rather than drifting to an unidentified boundary when the data
   ## do not constrain it. Centred on a flat curve near 1 (slope 0). Set
   ## Pmoult_prior_sd to c(Inf, Inf) to switch it off entirely.
-  if (is.null(datain$Pmoult_prior_mean))   datain$Pmoult_prior_mean <- c(qlogis(0.95), 0)
-  if (is.null(datain$Pmoult_prior_sd))     datain$Pmoult_prior_sd   <- c(3, 0.1)
+  if (is.null(datain$Pmoult_prior_mean)) { datain$Pmoult_prior_mean <- c(qlogis(0.95), log(1e-3)) # near-zero slope magnitude = flat
+  }
+  if (is.null(datain$Pmoult_prior_sd)) { datain$Pmoult_prior_sd   <- c(3, 3)   # generous on the log scale, mirrors GrowthP3/P5 treatment
+  }
   ## PenSigError's centre and width. Previously hardcoded to
   ## log(2.0) / 0.5, which silently pulled toward 2 mm for any species
   ## whose measurement error was not 2 mm. Now supplied by add_sigError()
