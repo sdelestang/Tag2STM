@@ -136,9 +136,16 @@ MakepinPar <- function(avgrowth = 2,
     # ntsteps x 2 matrix -- growmod indexes Pmoult_par[ns, 1]/[ns, 2], so
     # this must be an actual matrix, not a length-2 vector. Every row
     # starts identical; Makemap decides which rows are freed independently.
-    Pmoult_par = matrix(rep(c(0.756, -0.0120), each = ntsteps),
-                         nrow = ntsteps, ncol = 2)
-  )
+    L50_start        <- median(bins)      # or mean(range(lbin)), or a biologically-informed guess
+    slope_mag_start  <- 0.0120            # same order of magnitude as before
+
+    par1_start <- slope_mag_start * L50_start
+    par2_start <- log(slope_mag_start)
+
+    Pmoult_par = matrix(
+      rep(c(par1_start, par2_start), each = ntsteps),
+      nrow = ntsteps, ncol = 2
+    )
 
   # Estimated split of datain$mpy across goodts seasons (softmax
   # construction in growmod). Only present when there's more than one

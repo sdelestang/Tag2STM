@@ -377,25 +377,12 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   sigError <- exp(LsigError)
 
   ## Pmoult_fn: the smallest n_pmoult1 length bins are hard-fixed at exactly
-  ## 1 (juveniles moult with certainty, by definition -- not merely "very
-  ## likely", which is all a fitted logistic asymptote can ever give you,
-  ## since plogis() approaches but never reaches exactly 1 for a finite
-  ## argument). fm and n_pmoult1 are both plain data (fm is a loop index,
-  ## n_pmoult1 is a datain scalar), so this comparison is safe -- same class
-  ## as the goodts membership checks elsewhere in this function. Returning
-  ## a plain numeric 1 from the true branch is fine even though the false
-  ## branch returns an AD value: RTMB/TMB arithmetic between AD types and
-  ## plain doubles is completely ordinary (already relied on throughout,
-  ## e.g. "1 - Pmoult").
-  ##
-  ## Beyond n_pmoult1, mpy_floor[ns] is plain data (computed above from data
-  ## only), so the floor rescaling of plogis(...) is a fixed transform of an
-  ## AD quantity, not a branch -- safe. mpy_floor[ns] = 0 (default, e.g.
-  ## non-goodts rows or mpy = 0) reproduces the original unclamped logistic.
+  ## 1 (juveniles moult with certainty
   Pmoult_fn <- function(ns, fm) {
     if (fm <= n_pmoult1) return(1)
     fl <- mpy_floor[ns]
-    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] * lbin[fm])
+    slope <- -exp(Pmoult_par[ns, 2])   # forces slope < 0: Pmoult can only decrease with size
+    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
   }
 
   ## --- Tagging-induced moult suppression ---------------------------------

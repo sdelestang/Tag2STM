@@ -80,7 +80,8 @@ build_lenout_envelope <- function(rep_out, datain) {
   Pmoult_fn <- function(ns, fm) {
     if (fm <= n_pmoult1) return(1)
     fl <- mpy_floor[ns]
-    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] * lbin[fm])
+    slope <- -exp(Pmoult_par[ns, 2])
+    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
   }
 
   scenario_S <- c(0, min(S), max(S))
