@@ -114,47 +114,38 @@ MakepinPar <- function(avgrowth = 2,
   # unused).
   lbin_range <- diff(range(datain$lbin))
   growth_start <- c(
-    log(avgrowth),           # log(Amax)
-    median(datain$lbin),     # P2
-    log(lbin_range / 20),    # log(P1)  -- steeper logistic scale
-    log(lbin_range / 5),     # log(P3)  -- shallower logistic scale
-    log(lbin_range / 20)     # log(P5)  -- swap/blend transition width
+    log(avgrowth),
+    median(datain$lbin),
+    log(lbin_range / 20),
+    log(lbin_range / 5),
+    log(lbin_range / 20)
   )
 
+  # Pmoult_par starting values -- L50 and slope magnitude, converted to the
+  # (intercept, log(slope_magnitude)) form growmod's Pmoult_fn expects
+  # (slope is forced negative there via -exp(Pmoult_par[,2])).
+  L50_start       <- median(datain$lbin)   # or a biologically-informed guess
+  slope_mag_start <- 0.0120                # same order of magnitude as before
+  par1_start      <- slope_mag_start * L50_start
+  par2_start      <- log(slope_mag_start)
+
   pin <- list(
-    # ntsteps x 5 matrix -- growmod indexes Growth_par[ns, 1:5], so this
-    # must be an actual matrix, not a length-5 vector. Every row starts
-    # identical; Makemap decides which rows are freed independently.
     Growth_par = matrix(rep(growth_start, each = ntsteps),
-                         nrow = ntsteps, ncol = 5),
+                        nrow = ntsteps, ncol = 5),
     LsigError = LsigError,
     LsigGrow = LsigGrow,
     MerrorRel = rep(0, nobs),
     LMerrorRelsigma = LMerrorRelsigma,
     MerrorRec = rep(0, nobs),
     LMerrorRecsigma = LMerrorRecsigma,
-    # ntsteps x 2 matrix -- growmod indexes Pmoult_par[ns, 1]/[ns, 2], so
-    # this must be an actual matrix, not a length-2 vector. Every row
-    # starts identical; Makemap decides which rows are freed independently.
-    L50_start        <- median(bins)      # or mean(range(lbin)), or a biologically-informed guess
-    slope_mag_start  <- 0.0120            # same order of magnitude as before
-
-    par1_start <- slope_mag_start * L50_start
-    par2_start <- log(slope_mag_start)
-
     Pmoult_par = matrix(
       rep(c(par1_start, par2_start), each = ntsteps),
       nrow = ntsteps, ncol = 2
     )
+  )
 
   # Estimated split of datain$mpy across goodts seasons (softmax
-  # construction in growmod). Only present when there's more than one
-  # goodts season -- must be present at trace time whenever that's true,
-  # regardless of what mpy itself is currently set to (mpy can be changed
-  # between fits via datain$mpy <- ... without re-tracing; the parameter
-  # vector's shape can't). All zeros = an exactly even split at the start
-  # of optimisation, unbiased since you don't know in advance which season
-  # should carry more of the floor.
+  # construction in growmod)...
   n_goodts <- length(datain$goodts)
   if (n_goodts > 1) {
     pin$mpy_split_par <- rep(0, n_goodts - 1)
