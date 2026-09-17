@@ -30,8 +30,8 @@
 #'   \code{datain <- add_year_support(datain)} first).
 #'
 #' @details
-#' \strong{Growth_par starting values.} The four shape parameters of the
-#' double logistic (\code{P1}, \code{P2}, \code{P3}, \code{P5} -- see
+#' \strong{Growth_par starting values.} The three shape parameters of the
+#' double logistic (\code{P1}, \code{P2}, \code{P3} -- see
 #' \code{\link{growmodPar}} for the curve itself) are seeded from
 #' \code{datain$lbin} rather than hardcoded, so they scale sensibly
 #' whatever species/size range is in use:
@@ -45,26 +45,31 @@
 #'     the starting values is only a starting-value convenience, NOT a
 #'     constraint enforced anywhere -- \code{growmod} does not care which
 #'     of the two ends up larger after fitting; the data decide.
-#'   \item \code{P5} (the swap/blend transition width) starts at
-#'     \code{diff(range(datain$lbin)) / 20}, i.e. roughly as sharp as the
-#'     steeper of the two growth logistics.
 #'   \item \code{Amax} starts at \code{avgrowth} (mm), estimated on the
 #'     log scale.
 #' }
+#' \code{P5} (the swap/blend transition width) is no longer a column of
+#' \code{Growth_par} at all -- it is FIXED, not estimated, and read
+#' directly from \code{datain$Growth_P5_fixed} by \code{\link{growmodPar}}
+#' (default \code{0.1} if not set). There is nothing for \code{Makepin} to
+#' seed for it.
 #' Every row of \code{Growth_par} is initialised identically (same
 #' convention as \code{Pmoult_par}); \code{\link{MakemapPar}} decides which
 #' rows are estimated independently versus fixed/shared.
 #'
 #' @return A named list of initial parameter values. Key elements:
 #' \describe{
-#'   \item{Growth_par}{Numeric MATRIX, \code{ntsteps x 5} -- one
-#'     5-parameter double-logistic growth-at-length curve per season,
-#'     columns \code{log(Amax)}, \code{P2}, \code{log(P1)}, \code{log(P3)},
-#'     \code{log(P5)} (see \code{\link{growmodPar}} for the curve itself and
-#'     Details above for the starting values). Replaces the former
-#'     \code{growth_vecpar} (an \code{nlbin * ntsteps}-length per-bin
-#'     random walk). \code{Makemap} determines which rows are estimated
-#'     independently versus fixed/shared (see \code{\link{MakemapPar}}).}
+#'   \item{Growth_par}{Numeric MATRIX, \code{ntsteps x 4} -- one
+#'     4-parameter double-logistic growth-at-length curve per season,
+#'     columns \code{log(Amax)}, \code{P2}, \code{log(P1)}, \code{log(P3)}
+#'     (see \code{\link{growmodPar}} for the curve itself and Details above
+#'     for the starting values). The former 5th column, \code{log(P5)}, is
+#'     gone -- \code{P5} is now fixed data (\code{datain$Growth_P5_fixed}),
+#'     not an estimated parameter, so it is never part of \code{pin}.
+#'     Replaces the former \code{growth_vecpar} (an
+#'     \code{nlbin * ntsteps}-length per-bin random walk). \code{Makemap}
+#'     determines which rows are estimated independently versus
+#'     fixed/shared (see \code{\link{MakemapPar}}).}
 #'   \item{Pmoult_par}{Numeric MATRIX, \code{ntsteps x 2} (intercept, slope
 #'     columns) -- one logistic P(moult)-by-size curve per season:
 #'     \code{Pmoult(ns, fm) = plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] *
@@ -111,14 +116,15 @@ MakepinPar <- function(avgrowth = 2,
   # datain$lbin so they scale with whatever species/size range is in use,
   # rather than hardcoding fixed mm values that would only suit one
   # species. avgrowth now feeds Amax directly (previously accepted but
-  # unused).
+  # unused). No P5 entry here any more -- P5 is fixed data
+  # (datain$Growth_P5_fixed, defaulted inside growmodPar), not an
+  # estimated parameter, so Growth_par is 4 columns rather than 5.
   lbin_range <- diff(range(datain$lbin))
   growth_start <- c(
     log(avgrowth),
     median(datain$lbin),
     log(lbin_range / 20),
-    log(lbin_range / 5),
-    log(lbin_range / 20)
+    log(lbin_range / 5)
   )
 
   # Pmoult_par starting values -- L50 and slope magnitude, converted to the
@@ -131,7 +137,7 @@ MakepinPar <- function(avgrowth = 2,
 
   pin <- list(
     Growth_par = matrix(rep(growth_start, each = ntsteps),
-                        nrow = ntsteps, ncol = 5),
+                        nrow = ntsteps, ncol = 4),
     LsigError = LsigError,
     LsigGrow = LsigGrow,
     MerrorRel = rep(0, nobs),

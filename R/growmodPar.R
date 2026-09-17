@@ -108,15 +108,16 @@
 #' \code{smoother} existed at all (a penalty purely to stop that many
 #' parameters chasing noise).
 #'
-#' It is replaced by a 5-parameter double logistic per \code{goodts} row,
-#' fully vectorised over \code{lbin}:
+#' It is replaced by a 4-parameter double logistic per \code{goodts} row,
+#' fully vectorised over \code{lbin}, plus a FIXED (not estimated) swap
+#' width \code{P5}:
 #'
 #' \preformatted{
 #' Amax <- exp(Growth_par[ns, 1])   # max growth increment (mm), > 0
 #' P2   <-     Growth_par[ns, 2]    # shared inflection point (mm)
 #' P1   <- exp(Growth_par[ns, 3])   # scale of the small-size logistic
 #' P3   <- exp(Growth_par[ns, 4])   # scale of the large-size logistic
-#' P5   <- exp(Growth_par[ns, 5])   # width of the swap (blend) transition
+#' P5   <- datain$Growth_P5_fixed   # width of the swap (blend) transition -- FIXED, not estimated
 #'
 #' xdev  <- lbin - P2
 #' grow1 <- 1 / (1 + exp(xdev / P1))
@@ -140,24 +141,29 @@
 #' \code{-P5} but avoids a redundant transcendental call), so the switch
 #' from the "\code{P1} regime" to the "\code{P3} regime" happens over the
 #' width \code{P5} with no kink -- important for RTMB, since a
-#' non-differentiable join would break the AD tape. \code{grow1 * swap1 +
+#' non-differentiable join would break the AD tape. \code{P5} is
+#' deliberately FIXED rather than estimated (see point 5 below) so this
+#' swap is always steep and centred exactly at \code{P2}, with no risk of
+#' it drifting to a value that distorts the growth curve near the
+#' inflection point. \code{grow1 * swap1 +
 #' grow2 * swap2} is a convex combination of two \code{(0, 1)}-valued
 #' functions, so it is itself always in \code{(0, 1)} by construction --
 #' positivity of the growth curve therefore falls out for free from
 #' \code{Amax > 0} alone, with no floor/softplus machinery needed anywhere
 #' in this construction.
 #'
-#' \code{Growth_par} is an \code{ntsteps x 5} matrix, only the
+#' \code{Growth_par} is an \code{ntsteps x 4} matrix, only the
 #' \code{goodts} rows are used by \code{growmod} (other rows are ignored
 #' here, exactly as \code{Pmoult_par}'s non-\code{goodts} rows are). This
 #' drops the parameter count per row from \code{nlbin} (order of a hundred
-#' for these species) to 5, and \code{smoother} -- whose only job was
+#' for these species) to 4, and \code{smoother} -- whose only job was
 #' controlling the random walk's roughness -- no longer does anything: the
 #' new curve is smooth by construction, not by penalty. \strong{\code{
 #' datain$smoother} is now unused; \code{Makedata}/\code{Makepin} can drop
 #' it, and \code{Makepin} must be updated to build \code{Growth_par}
-#' (\code{ntsteps x 5}, columns in the order log(Amax), P2, log(P1),
-#' log(P3), log(P5)) in place of \code{growth_vecpar}.} Everything
+#' (\code{ntsteps x 4}, columns in the order log(Amax), P2, log(P1),
+#' log(P3)) in place of \code{growth_vecpar}. \code{P5} is no longer a
+#' column of \code{Growth_par} at all -- see point 5 below.} Everything
 #' downstream of \code{growthmat} (STM construction, the identification
 #' mixture, the average growth trajectory) is unchanged, since all of it
 #' only ever reads \code{growthmat[ns, fm]} and has no knowledge of how
@@ -187,30 +193,37 @@
 #' \code{datain$GrowthP3_prior_sd <- Inf} to switch this prior off
 #' entirely.
 #'
-#' \strong{5. Soft anchor prior on \code{Growth_par}'s \code{log(P5)}
-#' (\code{datain$GrowthP5_prior_mean}/\code{GrowthP5_prior_sd}).} Same idea
-#' as point 4, mirrored: \code{P5} is the swap/blend transition width, and
-#' its runaway direction is the opposite of \code{P3}'s -- \code{P5 -> 0}
-#' (an infinitely sharp, near step-function swap) rather than
-#' \code{P5 -> Inf}. A sharp swap is itself a perfectly ordinary,
-#' well-identified feature, not a symptom of anything wrong -- but pushed
-#' far enough it produces the same practical cost as \code{P3}'s runaway:
-#' \code{xdev / P5} becomes numerically huge for any length away from
-#' \code{P2}, which is hard on conditioning even when the resulting
-#' probabilities stay sensible, and \code{P3}/\code{P5} can trade off
-#' against each other (an extreme pairing of both reproducing the same
-#' effective curve as more moderate values of each) -- observed in
-#' practice: fitting \code{GrowthP3} alone pulled the unconstrained
-#' \code{P5 ~ 0.0016} back up to \code{P5 ~ 1.35} without \code{P5} being
-#' penalised directly, exactly the kind of ridge this second anchor is
-#' meant to further discourage. Centred at the same scale \code{Makepin}
-#' uses to start \code{P5} (\code{lbin} span / 20) rather than at some
-#' arbitrarily small or large constant, so the anchor doesn't itself argue
-#' for a sharper or gentler transition than a reasonable default guess --
-#' only against drifting far from it. Same deliberately generous default
-#' sd (3 on the log scale) as \code{GrowthP3}. Set
-#' \code{datain$GrowthP5_prior_sd <- Inf} to switch this prior off
-#' entirely.
+#' \strong{5. \code{P5} (the swap/blend transition width) is now FIXED,
+#' not estimated (\code{datain$Growth_P5_fixed}, default \code{0.1}).}
+#' Previously \code{P5} was a free parameter (\code{Growth_par}'s 5th
+#' column, \code{log(P5)}), soft-anchored by a wide prior to stop it
+#' drifting to a numerically extreme value on either side (\code{P5 -> 0}
+#' for an infinitely sharp swap, \code{P5 -> Inf} for an infinitely
+#' gradual one). In practice freeing it bought little: the swap is only
+#' meant to stitch \code{grow1} and \code{grow2} together at \code{P2}
+#' without a kink, and the fit does not need to relocate that transition
+#' -- it should simply be steep, so the growth curve behaves like a
+#' clean switch between the two regimes right at \code{P2} rather than a
+#' broad, wandering blend that can distort the curve's shape near the
+#' inflection point (an estimated \code{P5} was observed to sometimes
+#' settle on values loose enough to visibly do this). Fixing \code{P5}
+#' removes that failure mode entirely and also removes one parameter (and
+#' the soft-anchor prior that existed only to manage it) from every fit.
+#'
+#' \code{datain$Growth_P5_fixed} defaults to \code{0.1} -- a steep,
+#' near-step-function transition relative to a typical \code{lbin} range
+#' -- but is plain \code{datain}, so it can be overridden per analysis
+#' (e.g. \code{datain$Growth_P5_fixed <- 0.05} for an even sharper swap)
+#' without touching \code{growmod} itself. It applies identically to
+#' every \code{goodts} row -- there is no per-row \code{Growth_P5_fixed}
+#' vector, since a single fixed steepness is the point (freeing it back up
+#' per row would reopen the exact problem this change removes).
+#'
+#' \code{Makepin}/\code{Makemap} no longer need to build or map a 5th
+#' \code{Growth_par} column, and \code{GrowthP5_prior_mean}/
+#' \code{GrowthP5_prior_sd}/\code{PenGrowthP5} are gone entirely -- there
+#' is nothing left to anchor once \code{P5} is fixed rather than
+#' estimated.
 #'
 #' @return Scalar total negative log-likelihood. Key \code{REPORT()}
 #'   objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
@@ -221,10 +234,10 @@
 #'   \code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
 #'   row, for diagnostics), \code{Growth_par} and its exponentiated/derived
 #'   per-row values \code{Growth_Amax}, \code{Growth_P1}, \code{Growth_P2},
-#'   \code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows),
-#'   \code{PenGrowthP3}, \code{PenGrowthP5} (the two soft anchor priors'
-#'   contributions, for diagnostics), and \code{S} when
-#'   \code{TemporalGrowth = TRUE}.
+#'   \code{Growth_P3} (0 on non-\code{goodts} rows), \code{Growth_P5_fixed}
+#'   (the fixed swap width actually used, single value, for diagnostics),
+#'   \code{PenGrowthP3} (the soft anchor prior's contribution, for
+#'   diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
 #'
 #' @export
 growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
@@ -271,23 +284,11 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     datain$GrowthP3_prior_mean <- log(diff(range(datain$lbin)) * 20)
   }
   if (is.null(datain$GrowthP3_prior_sd))    datain$GrowthP3_prior_sd   <- 3
-  ## Soft anchor prior on Growth_par's log(P5) (the swap/blend transition
-  ## width) -- see PenGrowthP5 below for the full rationale. Mirrors
-  ## GrowthP3's treatment but in the opposite direction: P5 -> 0 (an
-  ## infinitely sharp swap) is the runaway direction here, not P5 -> Inf.
-  ## Centred at the same scale Makepin uses as P5's starting value
-  ## (lbin span / 20) -- a fairly sharp transition already -- rather than
-  ## at some arbitrary small constant, so the anchor doesn't itself imply
-  ## either a sharp or gradual transition is preferred. Same default sd (3
-  ## on the log scale) as GrowthP3, for the same reason: wide enough that
-  ## a genuinely sharp swap (small P5) is barely constrained, but present
-  ## to stop an unbounded slide toward numerically extreme values (e.g.
-  ## the P5 ~ 0.0016 seen before GrowthP3 was anchored). Set
-  ## GrowthP5_prior_sd to Inf to switch it off entirely.
-  if (is.null(datain$GrowthP5_prior_mean)) {
-    datain$GrowthP5_prior_mean <- log(diff(range(datain$lbin)) / 40)
-  }
-  if (is.null(datain$GrowthP5_prior_sd))    datain$GrowthP5_prior_sd   <- 10
+  ## P5 (the swap/blend transition width) is now FIXED, not estimated --
+  ## see @details point 5 above for the full rationale. Plain data, no
+  ## prior needed: datain$Growth_P5_fixed default 0.1 (a steep, near
+  ## step-function swap), overridable per analysis.
+  if (is.null(datain$Growth_P5_fixed))      datain$Growth_P5_fixed     <- 0.1
 
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
@@ -441,33 +442,38 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## --- Growth-at-length: double-logistic curve, one per goodts row ------
   ## Replaces the former nlbin-parameter-per-row random walk
   ## (growth_vecpar, softplus increments cumulative-summed from the top
-  ## bin down) with a 5-parameter double logistic, fully vectorised over
-  ## lbin. See @details point 3 in the roxygen header above for the full
-  ## rationale.
+  ## bin down) with a 4-parameter double logistic, fully vectorised over
+  ## lbin, plus a FIXED (not estimated) swap width. See @details point 3
+  ## (and point 5, for why P5 is fixed) in the roxygen header above for
+  ## the full rationale.
   ##
-  ## Growth_par is ntsteps x 5, columns: log(Amax), P2, log(P1), log(P3),
-  ## log(P5). Only goodts rows are read here (non-goodts rows are ignored,
-  ## same convention as Pmoult_par). The three scale-type parameters
-  ## (P1, P3, P5) and the amplitude (Amax) are estimated on the log scale
-  ## so they stay strictly positive with no explicit floor; P2 (a length,
-  ## sharing the same units as lbin) is estimated on its natural scale.
+  ## Growth_par is ntsteps x 4, columns: log(Amax), P2, log(P1), log(P3).
+  ## Only goodts rows are read here (non-goodts rows are ignored, same
+  ## convention as Pmoult_par). The two scale-type parameters (P1, P3) and
+  ## the amplitude (Amax) are estimated on the log scale so they stay
+  ## strictly positive with no explicit floor; P2 (a length, sharing the
+  ## same units as lbin) is estimated on its natural scale. P5 (the
+  ## swap/blend width) is plain data -- datain$Growth_P5_fixed, defaulted
+  ## above -- identical for every goodts row, not read from Growth_par at
+  ## all.
   ##
   ## grow1/grow2 are ordinary decreasing logistics in (0, 1) sharing centre
   ## P2 but with different scales (P1 steep, P3 shallow, or vice versa);
-  ## swap1/swap2 blend between them over width P5 with no kink (both
-  ## logistic-shaped, so the whole construction stays differentiable for
-  ## the RTMB tape). swap2 = 1 - swap1 exactly (equivalent to evaluating
-  ## the mirrored logistic with scale -P5, but without a second exp()
-  ## call). grow1*swap1 + grow2*swap2 is a convex combination of two
+  ## swap1/swap2 blend between them over the fixed width P5 with no kink
+  ## (both logistic-shaped, so the whole construction stays differentiable
+  ## for the RTMB tape, even though P5 itself carries no gradient here).
+  ## swap2 = 1 - swap1 exactly (equivalent to evaluating the mirrored
+  ## logistic with scale -P5, but without a second exp() call).
+  ## grow1*swap1 + grow2*swap2 is a convex combination of two
   ## (0, 1)-valued curves, hence itself always in (0, 1) -- multiplying by
   ## Amax > 0 is therefore sufficient on its own to keep growthmat
   ## strictly positive, with no softplus/floor machinery required.
+  P5 <- Growth_P5_fixed   # fixed, same for every goodts row
   for (ns in goodts) {
     Amax <- exp(Growth_par[ns, 1])
     P2   <- Growth_par[ns, 2]
     P1   <- exp(Growth_par[ns, 3])
     P3   <- exp(Growth_par[ns, 4])
-    P5   <- exp(Growth_par[ns, 5])
 
     xdev  <- lbin - P2
     grow1 <- 1 / (1 + exp(xdev / P1))
@@ -736,7 +742,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## construction (see the growth-at-length block above), so neither is
   ## needed. datain$smoother is consequently unused by this function; it
   ## can be dropped from Makedata/Makepin, or left in place harmlessly. If
-  ## a fit shows Growth_par's scale parameters (P1, P3, P5) wandering to
+  ## a fit shows Growth_par's scale parameters (P1, P3) wandering to
   ## extreme values on a sparse dataset, a weak prior in the same style as
   ## PenPmoult below would be the natural fix -- not added here since it
   ## hasn't been needed yet.
@@ -809,43 +815,13 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       dnorm(Growth_par[ns, 4], GrowthP3_prior_mean, GrowthP3_prior_sd, log = TRUE)
   }
 
-  ## --- Soft anchor prior on Growth_par's log(P5) --------------------------
-  ## P5 is the swap/blend transition width (see the growth-at-length block
-  ## above): how quickly the curve moves from the P1-scale logistic to the
-  ## P3-scale one, centred at P2. The runaway direction here is the mirror
-  ## image of P3's: P5 -> 0 (an infinitely sharp, near step-function swap)
-  ## rather than P5 -> Inf. A very sharp swap is itself a perfectly
-  ## ordinary, well-identified feature -- not a symptom of anything wrong,
-  ## same as noted for P3 -- but pushed far enough it produces the same
-  ## practical cost as P3's runaway: near-zero P5 makes xdev/P5 numerically
-  ## huge for any length away from P2, which is hard on conditioning even
-  ## when the resulting probabilities are all still sensible, and in
-  ## practice P3 and P5 can trade off against each other (an extreme P3
-  ## paired with an extreme P5 reproducing the same effective curve as more
-  ## moderate values of both -- this is what pulled P5 down to ~0.0016
-  ## before GrowthP3 existed, and pulled it back to ~1.35 once GrowthP3
-  ## alone was anchored).
-  ##
-  ## Centred at the same scale Makepin starts P5 from (lbin span / 20,
-  ## datain$GrowthP5_prior_mean, set in the defaults block above) rather
-  ## than at some arbitrarily small or large constant, so the anchor
-  ## doesn't itself argue for a sharper or gentler transition than a
-  ## reasonable default guess -- only against drifting far from it. Same
-  ## deliberately generous default sd (3 on the log scale) as GrowthP3, so
-  ## a curve that genuinely wants a much sharper (or much gentler) swap
-  ## still gets there cheaply; this only bites once P5 is heading toward
-  ## the kind of extreme value that buys no visible improvement in the fit.
-  ##
-  ## Summed over goodts rows only, same reasoning as PenGrowthP3. Set
-  ## datain$GrowthP5_prior_sd <- Inf to switch this off entirely.
-  PenGrowthP5 <- 0
-  for (ns in goodts) {
-    PenGrowthP5 <- PenGrowthP5 -
-      dnorm(Growth_par[ns, 5], GrowthP5_prior_mean, GrowthP5_prior_sd, log = TRUE)
-  }
+  ## P5 (the swap/blend transition width) is now fixed data
+  ## (Growth_P5_fixed), not an estimated element of Growth_par -- see
+  ## @details point 5 above. There is nothing left to anchor with a prior,
+  ## so PenGrowthP5 no longer exists.
 
   TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
-    PenPmoult + PenGrowthP3 + PenGrowthP5
+    PenPmoult + PenGrowthP3
 
   if (TemporalGrowth) {
     ## Spen is the period vector in period mode and the year vector
@@ -875,7 +851,6 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   REPORT(Pmoult_par)
   REPORT(PenPmoult)
   REPORT(PenGrowthP3)
-  REPORT(PenGrowthP5)
   REPORT(mpy_floor)
   ## Growth_par plus its exponentiated/derived per-row values, for
   ## diagnostics -- same pattern as Pmoult_par/Pmoult_vec above. 0 on
@@ -885,17 +860,17 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   Growth_P1   <- rep(0, ntsteps)
   Growth_P2   <- rep(0, ntsteps)
   Growth_P3   <- rep(0, ntsteps)
-  Growth_P5   <- rep(0, ntsteps)
   Growth_Amax[goodts] <- exp(Growth_par[goodts, 1])
   Growth_P2[goodts]   <- Growth_par[goodts, 2]
   Growth_P1[goodts]   <- exp(Growth_par[goodts, 3])
   Growth_P3[goodts]   <- exp(Growth_par[goodts, 4])
-  Growth_P5[goodts]   <- exp(Growth_par[goodts, 5])
   REPORT(Growth_Amax)
   REPORT(Growth_P1)
   REPORT(Growth_P2)
   REPORT(Growth_P3)
-  REPORT(Growth_P5)
+  ## P5 is fixed data (Growth_P5_fixed), identical for every goodts row --
+  ## report the single value used, not a per-row vector.
+  REPORT(Growth_P5_fixed)
   if (suppress) {
     ## r0_p    : recovery multiplier at zero liberty (1 = no effect)
     ## lib50_p : liberty in DAYS at half recovery

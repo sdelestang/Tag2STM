@@ -39,7 +39,7 @@
 ## exclusion filter was really just a roundabout way of finding it.
 ##
 ## Growth_par (see Makepin.R) is now built and mapped exactly like
-## Pmoult_par -- an ntsteps x 5 matrix, own dedicated mapping block below
+## Pmoult_par -- an ntsteps x 4 matrix, own dedicated mapping block below
 ## -- rather than falling through the generic sweep, so:
 ##   (a) it is added to the exclusion list alongside Pmoult_par etc., and
 ##   (b) the `pnames`/`turnon`/`lapply` block is removed outright, since
@@ -51,12 +51,13 @@
 ## parameter's own block, same as MerrorRel/LsigError/Sraw already were.
 ##
 ## New `Growth_shared` argument (default FALSE), exactly mirroring
-## `Pmoult_shared`: FALSE frees each goodts row's 5 parameters
-## independently (feasible now that Growth_par is 5 parameters per row
-## rather than nlbin), TRUE maps every goodts row to the same 5 factor
+## `Pmoult_shared`: FALSE frees each goodts row's 4 parameters
+## independently (feasible now that Growth_par is 4 parameters per row
+## rather than nlbin), TRUE maps every goodts row to the same 4 factor
 ## levels (a single shared growth curve across seasons) -- a reasonable
 ## fallback if a diagnostic run shows a particular season's row poorly
-## identified on its own.
+## identified on its own. (The 5th former parameter, P5, is fixed data
+## now -- see growmodPar/Makepin -- so there is nothing to map for it.)
 
 ## -----------------------------------------------------------------------
 ## Full function
@@ -88,18 +89,21 @@
 #'   with the broader mixture. Non-\code{goodts} rows are always fixed
 #'   regardless of this argument, since \code{growmod} never evaluates them.
 #' @param Growth_shared Logical (default \code{FALSE}). Same idea as
-#'   \code{Pmoult_shared}, applied to the 5-column \code{Growth_par}
+#'   \code{Pmoult_shared}, applied to the 4-column \code{Growth_par}
 #'   double-logistic growth-at-length curve (see \code{\link{growmodPar}}
 #'   and \code{\link{MakepinPar}}). \code{FALSE} (default) frees each
-#'   \code{goodts} row's 5 parameters (\code{Amax}, \code{P1}, \code{P2},
-#'   \code{P3}, \code{P5}) independently, which is generally feasible now
-#'   that the growth curve is 5 parameters per row rather than
-#'   \code{nlbin}. \code{TRUE} maps every \code{goodts} row to the same 5
-#'   factor levels, i.e. a single shared growth curve across seasons --
-#'   use this as a fallback if a particular season is poorly identified
-#'   on its own (e.g. very few recaptures in that \code{goodts} window).
-#'   Non-\code{goodts} rows are always fixed regardless of this argument,
-#'   since \code{growmod} never evaluates them.
+#'   \code{goodts} row's 4 parameters (\code{Amax}, \code{P1}, \code{P2},
+#'   \code{P3}) independently, which is generally feasible now that the
+#'   growth curve is 4 parameters per row rather than \code{nlbin}.
+#'   \code{TRUE} maps every \code{goodts} row to the same 4 factor levels,
+#'   i.e. a single shared growth curve across seasons -- use this as a
+#'   fallback if a particular season is poorly identified on its own (e.g.
+#'   very few recaptures in that \code{goodts} window). Non-\code{goodts}
+#'   rows are always fixed regardless of this argument, since
+#'   \code{growmod} never evaluates them. \code{P5} (the swap/blend
+#'   transition width) is no longer part of \code{Growth_par} at all -- it
+#'   is fixed data (\code{datain$Growth_P5_fixed}), so there is nothing to
+#'   map or share for it.
 #'
 #' @export
 MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
@@ -179,15 +183,20 @@ MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
   map$Pmoult_par <- as.factor(as.vector(Pmoult_map))
 
   ## --- Growth_par mapping (new) -------------------------------------------
-  ## pin$Growth_par is ntsteps x 5 (see Makepin): log(Amax), P2, log(P1),
-  ## log(P3), log(P5). Same convention as Pmoult_par immediately above:
-  ## non-goodts rows fixed at their Makepin initial values (growmod's
-  ## growth-at-length block never reads them), goodts rows either freed
-  ## independently (5 levels per season) or all sharing one set of 5
-  ## levels if Growth_shared = TRUE. Independent-by-default is feasible
-  ## here in a way it never was for the old growth_vecpar (nlbin
-  ## parameters per row) -- 5 parameters per goodts row is a realistic ask
+  ## pin$Growth_par is ntsteps x 4 (see Makepin): log(Amax), P2, log(P1),
+  ## log(P3). (P5, the swap/blend transition width, is fixed data --
+  ## datain$Growth_P5_fixed -- not a Growth_par column at all any more, so
+  ## there is nothing to map for it.) Same convention as Pmoult_par
+  ## immediately above: non-goodts rows fixed at their Makepin initial
+  ## values (growmod's growth-at-length block never reads them), goodts
+  ## rows either freed independently (4 levels per season) or all sharing
+  ## one set of 4 levels if Growth_shared = TRUE. Independent-by-default is
+  ## feasible here in a way it never was for the old growth_vecpar (nlbin
+  ## parameters per row) -- 4 parameters per goodts row is a realistic ask
   ## even for a single-season, moderate-sample dataset.
+  ##
+  ## ncol_growth is read directly from pin$Growth_par below, so this block
+  ## needs no further change if the column count ever changes again.
   ncol_growth <- ncol(pin$Growth_par)
   Growth_map <- matrix(NA_integer_, nrow = ntsteps, ncol = ncol_growth)
 
