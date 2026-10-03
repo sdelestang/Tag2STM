@@ -38,18 +38,21 @@ with the broader mixture. Non-\code{goodts} rows are always fixed
 regardless of this argument, since \code{growmod} never evaluates them.}
 
 \item{Growth_shared}{Logical (default \code{FALSE}). Same idea as
-\code{Pmoult_shared}, applied to the 5-column \code{Growth_par}
+\code{Pmoult_shared}, applied to the 4-column \code{Growth_par}
 double-logistic growth-at-length curve (see \code{\link{growmodPar}}
 and \code{\link{MakepinPar}}). \code{FALSE} (default) frees each
-\code{goodts} row's 5 parameters (\code{Amax}, \code{P1}, \code{P2},
-\code{P3}, \code{P5}) independently, which is generally feasible now
-that the growth curve is 5 parameters per row rather than
-\code{nlbin}. \code{TRUE} maps every \code{goodts} row to the same 5
-factor levels, i.e. a single shared growth curve across seasons --
-use this as a fallback if a particular season is poorly identified
-on its own (e.g. very few recaptures in that \code{goodts} window).
-Non-\code{goodts} rows are always fixed regardless of this argument,
-since \code{growmod} never evaluates them.}
+\code{goodts} row's 4 parameters (\code{Amax}, \code{P1}, \code{P2},
+\code{P3}) independently, which is generally feasible now that the
+growth curve is 4 parameters per row rather than \code{nlbin}.
+\code{TRUE} maps every \code{goodts} row to the same 4 factor levels,
+i.e. a single shared growth curve across seasons -- use this as a
+fallback if a particular season is poorly identified on its own (e.g.
+very few recaptures in that \code{goodts} window). Non-\code{goodts}
+rows are always fixed regardless of this argument, since
+\code{growmod} never evaluates them. \code{P5} (the swap/blend
+transition width) is no longer part of \code{Growth_par} at all -- it
+is fixed data (\code{datain$Growth_P5_fixed}), so there is nothing to
+map or share for it.}
 }
 \description{
 (See previous version's roxygen for the general \code{re}/

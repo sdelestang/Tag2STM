@@ -25,8 +25,10 @@ objects: \code{LL} (per-animal marginal log-likelihoods), \code{IdentLL}
 \code{Pmoult_par}, \code{mpy_floor} (the fitted floor per \code{goodts}
 row, for diagnostics), \code{Growth_par} and its exponentiated/derived
 per-row values \code{Growth_Amax}, \code{Growth_P1}, \code{Growth_P2},
-\code{Growth_P3}, \code{Growth_P5} (0 on non-\code{goodts} rows), and
-\code{S} when \code{TemporalGrowth = TRUE}.
+\code{Growth_P3} (0 on non-\code{goodts} rows), \code{Growth_P5_fixed}
+(the fixed swap width actually used, single value, for diagnostics),
+\code{PenGrowthP3} (the soft anchor prior's contribution, for
+diagnostics), and \code{S} when \code{TemporalGrowth = TRUE}.
 }
 \description{
 \code{growmodPar} is identical to \code{growmod} except for how the
@@ -131,15 +133,16 @@ most of them doing the same job as their neighbours, which is why
 \code{smoother} existed at all (a penalty purely to stop that many
 parameters chasing noise).
 
-It is replaced by a 5-parameter double logistic per \code{goodts} row,
-fully vectorised over \code{lbin}:
+It is replaced by a 4-parameter double logistic per \code{goodts} row,
+fully vectorised over \code{lbin}, plus a FIXED (not estimated) swap
+width \code{P5}:
 
 \preformatted{
 Amax <- exp(Growth_par[ns, 1])   # max growth increment (mm), > 0
 P2   <-     Growth_par[ns, 2]    # shared inflection point (mm)
 P1   <- exp(Growth_par[ns, 3])   # scale of the small-size logistic
 P3   <- exp(Growth_par[ns, 4])   # scale of the large-size logistic
-P5   <- exp(Growth_par[ns, 5])   # width of the swap (blend) transition
+P5   <- datain$Growth_P5_fixed   # width of the swap (blend) transition -- FIXED, not estimated
 
 xdev  <- lbin - P2
 grow1 <- 1 / (1 + exp(xdev / P1))
@@ -163,26 +166,87 @@ algebraically the same as evaluating the mirrored logistic with scale
 \code{-P5} but avoids a redundant transcendental call), so the switch
 from the "\code{P1} regime" to the "\code{P3} regime" happens over the
 width \code{P5} with no kink -- important for RTMB, since a
-non-differentiable join would break the AD tape. \code{grow1 * swap1 +
+non-differentiable join would break the AD tape. \code{P5} is
+deliberately FIXED rather than estimated (see point 5 below) so this
+swap is always steep and centred exactly at \code{P2}, with no risk of
+it drifting to a value that distorts the growth curve near the
+inflection point. \code{grow1 * swap1 +
 grow2 * swap2} is a convex combination of two \code{(0, 1)}-valued
 functions, so it is itself always in \code{(0, 1)} by construction --
 positivity of the growth curve therefore falls out for free from
 \code{Amax > 0} alone, with no floor/softplus machinery needed anywhere
 in this construction.
 
-\code{Growth_par} is an \code{ntsteps x 5} matrix, only the
+\code{Growth_par} is an \code{ntsteps x 4} matrix, only the
 \code{goodts} rows are used by \code{growmod} (other rows are ignored
 here, exactly as \code{Pmoult_par}'s non-\code{goodts} rows are). This
 drops the parameter count per row from \code{nlbin} (order of a hundred
-for these species) to 5, and \code{smoother} -- whose only job was
+for these species) to 4, and \code{smoother} -- whose only job was
 controlling the random walk's roughness -- no longer does anything: the
 new curve is smooth by construction, not by penalty. \strong{\code{
 datain$smoother} is now unused; \code{Makedata}/\code{Makepin} can drop
 it, and \code{Makepin} must be updated to build \code{Growth_par}
-(\code{ntsteps x 5}, columns in the order log(Amax), P2, log(P1),
-log(P3), log(P5)) in place of \code{growth_vecpar}.} Everything
+(\code{ntsteps x 4}, columns in the order log(Amax), P2, log(P1),
+log(P3)) in place of \code{growth_vecpar}. \code{P5} is no longer a
+column of \code{Growth_par} at all -- see point 5 below.} Everything
 downstream of \code{growthmat} (STM construction, the identification
 mixture, the average growth trajectory) is unchanged, since all of it
 only ever reads \code{growthmat[ns, fm]} and has no knowledge of how
 that value was built.
+
+\strong{4. Soft anchor prior on \code{Growth_par}'s \code{log(P3)}
+(\code{datain$GrowthP3_prior_mean}/\code{GrowthP3_prior_sd}).} When a
+fit wants \code{grow2} (the large-size logistic) to be essentially
+flat -- no further real decline in growth increment above \code{P2},
+just a plateau -- \code{P3} becomes unidentified in the same direction
+\code{Pmoult_par} can be (see point 1's floor discussion): any
+sufficiently large \code{P3} gives an indistinguishable curve, so
+nothing stops the optimiser pushing it to an arbitrary, numerically
+awkward extreme (observed in practice: \code{log(P3) ~ 14.2}, i.e.
+\code{P3 ~ 1.5} million, against an \code{lbin} range on the order of
+100). Unlike the \code{Pmoult_par} case this is NOT a diagnosed
+problem -- \code{P3} wanting to be very large is a perfectly fine,
+well-fitting curve, not a symptom that something is broken -- it is
+purely a resting place: \code{PenGrowthP3} is centred at 20x the
+observed \code{lbin} range with a deliberately generous default sd (3
+on the log scale, roughly a factor of 20 either side), so it costs the
+fit almost nothing if \code{P3} genuinely wants to sit at the anchor or
+below it, while stopping an unbounded climb that buys no improvement in
+fit and leaves the Hessian poorly scaled. \code{P1} is deliberately left
+unpenalised: nothing analogous to \code{P3}'s "wants to run to Inf"
+failure mode applies to it, so it needs no anchor. Set
+\code{datain$GrowthP3_prior_sd <- Inf} to switch this prior off
+entirely.
+
+\strong{5. \code{P5} (the swap/blend transition width) is now FIXED,
+not estimated (\code{datain$Growth_P5_fixed}, default \code{0.1}).}
+Previously \code{P5} was a free parameter (\code{Growth_par}'s 5th
+column, \code{log(P5)}), soft-anchored by a wide prior to stop it
+drifting to a numerically extreme value on either side (\code{P5 -> 0}
+for an infinitely sharp swap, \code{P5 -> Inf} for an infinitely
+gradual one). In practice freeing it bought little: the swap is only
+meant to stitch \code{grow1} and \code{grow2} together at \code{P2}
+without a kink, and the fit does not need to relocate that transition
+-- it should simply be steep, so the growth curve behaves like a
+clean switch between the two regimes right at \code{P2} rather than a
+broad, wandering blend that can distort the curve's shape near the
+inflection point (an estimated \code{P5} was observed to sometimes
+settle on values loose enough to visibly do this). Fixing \code{P5}
+removes that failure mode entirely and also removes one parameter (and
+the soft-anchor prior that existed only to manage it) from every fit.
+
+\code{datain$Growth_P5_fixed} defaults to \code{0.1} -- a steep,
+near-step-function transition relative to a typical \code{lbin} range
+-- but is plain \code{datain}, so it can be overridden per analysis
+(e.g. \code{datain$Growth_P5_fixed <- 0.05} for an even sharper swap)
+without touching \code{growmod} itself. It applies identically to
+every \code{goodts} row -- there is no per-row \code{Growth_P5_fixed}
+vector, since a single fixed steepness is the point (freeing it back up
+per row would reopen the exact problem this change removes).
+
+\code{Makepin}/\code{Makemap} no longer need to build or map a 5th
+\code{Growth_par} column, and \code{GrowthP5_prior_mean}/
+\code{GrowthP5_prior_sd}/\code{PenGrowthP5} are gone entirely -- there
+is nothing left to anchor once \code{P5} is fixed rather than
+estimated.
 }

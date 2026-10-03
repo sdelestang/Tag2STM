@@ -40,14 +40,17 @@ for year-specific growth scaling (requires
 \value{
 A named list of initial parameter values. Key elements:
 \describe{
-\item{Growth_par}{Numeric MATRIX, \code{ntsteps x 5} -- one
-5-parameter double-logistic growth-at-length curve per season,
-columns \code{log(Amax)}, \code{P2}, \code{log(P1)}, \code{log(P3)},
-\code{log(P5)} (see \code{\link{growmodPar}} for the curve itself and
-Details above for the starting values). Replaces the former
-\code{growth_vecpar} (an \code{nlbin * ntsteps}-length per-bin
-random walk). \code{Makemap} determines which rows are estimated
-independently versus fixed/shared (see \code{\link{MakemapPar}}).}
+\item{Growth_par}{Numeric MATRIX, \code{ntsteps x 4} -- one
+4-parameter double-logistic growth-at-length curve per season,
+columns \code{log(Amax)}, \code{P2}, \code{log(P1)}, \code{log(P3)}
+(see \code{\link{growmodPar}} for the curve itself and Details above
+for the starting values). The former 5th column, \code{log(P5)}, is
+gone -- \code{P5} is now fixed data (\code{datain$Growth_P5_fixed}),
+not an estimated parameter, so it is never part of \code{pin}.
+Replaces the former \code{growth_vecpar} (an
+\code{nlbin * ntsteps}-length per-bin random walk). \code{Makemap}
+determines which rows are estimated independently versus
+fixed/shared (see \code{\link{MakemapPar}}).}
 \item{Pmoult_par}{Numeric MATRIX, \code{ntsteps x 2} (intercept, slope
 columns) -- one logistic P(moult)-by-size curve per season:
 \code{Pmoult(ns, fm) = plogis(Pmoult_par[ns, 1] + Pmoult_par[ns, 2] *
@@ -79,8 +82,8 @@ tag-recapture growth models using RTMB/TMB. See previous version's
 roxygen for LsigError/LsigGrow/LMerrorRelsigma/LMerrorRecsigma/
 TemporalGrowth -- unchanged.
 
-\strong{Growth_par starting values.} The four shape parameters of the
-double logistic (\code{P1}, \code{P2}, \code{P3}, \code{P5} -- see
+\strong{Growth_par starting values.} The three shape parameters of the
+double logistic (\code{P1}, \code{P2}, \code{P3} -- see
 \code{\link{growmodPar}} for the curve itself) are seeded from
 \code{datain$lbin} rather than hardcoded, so they scale sensibly
 whatever species/size range is in use:
@@ -94,12 +97,14 @@ fairly steep initial logistic scale) and \code{P3} at
 the starting values is only a starting-value convenience, NOT a
 constraint enforced anywhere -- \code{growmod} does not care which
 of the two ends up larger after fitting; the data decide.
-\item \code{P5} (the swap/blend transition width) starts at
-\code{diff(range(datain$lbin)) / 20}, i.e. roughly as sharp as the
-steeper of the two growth logistics.
 \item \code{Amax} starts at \code{avgrowth} (mm), estimated on the
 log scale.
 }
+\code{P5} (the swap/blend transition width) is no longer a column of
+\code{Growth_par} at all -- it is FIXED, not estimated, and read
+directly from \code{datain$Growth_P5_fixed} by \code{\link{growmodPar}}
+(default \code{0.1} if not set). There is nothing for \code{Makepin} to
+seed for it.
 Every row of \code{Growth_par} is initialised identically (same
 convention as \code{Pmoult_par}); \code{\link{MakemapPar}} decides which
 rows are estimated independently versus fixed/shared.

@@ -4,7 +4,7 @@
 \alias{plotfit}
 \title{Plot Tag-Recapture Model Diagnostics}
 \usage{
-plotfit(datIn = tdat, mout = NULL)
+plotfit(datIn = tdat, mout = NULL, run_label = NULL)
 }
 \arguments{
 \item{datIn}{Data frame of tag-recapture observations. Default \code{tdat}.}
