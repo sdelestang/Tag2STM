@@ -1,56 +1,56 @@
 #' Project Per-timestep Growth Parameters onto One Annual Parameter Set
 #'
-#' Rebuilds each timestep's STM from its fitted parameters with the IMuLT
-#' builder on the Tag2STM length bins, compounds them into a 12-month STM,
-#' clips to the IMuLT length range, then fits a single annual parameter set
-#' whose one-step STM best reproduces the compounded matrix. The objective is
-#' a weighted KL divergence summed over from-length columns.
+#' Rebuilds each timestep's STM from its fitted growmodPar parameters on the
+#' Tag2STM length bins, compounds them into a 12-month STM, clips to the
+#' IMuLT length range, then fits a single annual parameter set whose
+#' one-step STM best reproduces the compounded matrix. The objective is a
+#' weighted KL divergence summed over from-length columns.
 #'
-#' This is the parameter-only counterpart of MakeAnnualPars(). It needs no
-#' fitted model object, so it can run inside the timestep-selection script
-#' from paroutlist alone. It works from mean growth (no year effects), which
-#' is like-for-like with the per-timestep parameters written to IMuLT.
+#' Parameter-only counterpart of MakeAnnualPars(): needs no fitted model
+#' object, so it runs inside the timestep-selection script from paroutlist.
+#' Works from mean growth (no year effects), like-for-like with the
+#' per-timestep parameters written to IMuLT.
 #'
-#' @param season_pars List of numeric parameter vectors, one per timestep,
-#'   each in \code{partypes} order.
+#' @param season_pars List of length-7 parameter vectors, one per timestep,
+#'   in growmodPar order: log(Amax), P2, log(P1), log(P3), LsigGrow,
+#'   Pmoult intercept, log(-Pmoult slope).
 #' @param tsteps Integer timestep index of each element of season_pars.
-#' @param stm_fun function(pars, bins) -> column-stochastic STM (columns =
-#'   from-length) for one step, where pars is a named vector in partypes
-#'   order and bins a list(lbinL, lbinU, lbin). Must be IMuLT's own builder.
-#' @param partypes Parameter names, in order.
-#' @param lower,upper Bounds for each parameter (length = length(partypes)).
+#' @param floors Per-timestep moult-probability floors (growmodPar's
+#'   mpy_floor for those timesteps). Default 0.
+#' @param stm_fun STM builder, function(pars, bins, floor, ...). Default
+#'   STMfromPars.
+#' @param partypes Parameter names, in order (labels only).
+#' @param lower,upper Bounds for each parameter.
 #' @param est Names of parameters to estimate; the rest stay at start values.
-#' @param bins Tag2STM length bins (from MakeLbin). Must be on IMuLT's bin
-#'   width; their wider span is used for compounding so growth near the
-#'   edges of the IMuLT range is not truncated mid-year.
-#' @param LowLB,UpLB Lower edges of IMuLT's first and last bins. Must lie on
-#'   the bins grid.
-#' @param start Timestep at which IMuLT's growth year begins. The product
-#'   starts at the first fitted timestep >= start, wrapping around.
+#' @param bins Tag2STM length bins (from MakeLbin), on IMuLT's bin width.
+#'   Their wider span is used for compounding.
+#' @param LowLB,UpLB Lower edges of IMuLT's first and last bins.
+#' @param start Timestep at which IMuLT's growth year begins.
+#' @param ann_floor Moult-probability floor for the annual STM. Default 0.
 #' @param wts Weights over IMuLT from-bins; NULL = uniform.
 #' @param plus_group TRUE accumulates mass above UpLB into the top IMuLT bin;
-#'   FALSE drops and renormalises (ClipSTM behaviour). Match how stm_fun
-#'   treats its top bin.
+#'   FALSE drops and renormalises (ClipSTM behaviour).
+#' @param ... Passed to stm_fun (e.g. n_pmoult1, P5).
 #'
 #' @return list(pars, objective, convergence, message, A, Ahat, moments)
 #' @export
-AnnualFromSeasonPars <- function(season_pars, tsteps, stm_fun, partypes,
+AnnualFromSeasonPars <- function(season_pars, tsteps, floors = 0,
+                                 stm_fun = STMfromPars, partypes,
                                  lower, upper, est = partypes, bins,
                                  LowLB, UpLB, start = min(tsteps),
-                                 wts = NULL, plus_group = FALSE) {
+                                 ann_floor = 0, wts = NULL, plus_group = FALSE, ...) {
   if (length(season_pars) != length(tsteps)) stop("One parameter vector per timestep required")
+  floors <- rep_len(floors, length(tsteps))
 
   ## ---- IMuLT bins: a subset of the Tag2STM bins ----
-  ## Modal width: tolerates irregular end bins outside the IMuLT range, but
-  ## every bin INSIDE the range must be on this width
   Gap    <- as.numeric(names(which.max(table(round(diff(bins$lbinL), 8)))))
   tL     <- seq(LowLB, UpLB, Gap)
   tokeep <- match(tL, bins$lbinL)
   if (anyNA(tokeep)) stop("LowLB/UpLB do not fall on the bins grid (width ", Gap, " mm)")
   if (any(abs(diff(bins$lbinL[c(tokeep, max(tokeep) + 1)]) - Gap) > 1e-8, na.rm = TRUE))
     stop("bins are not a constant ", Gap, " mm within the IMuLT range")
-  nb    <- length(tL)
-  tbins <- list(lbinL = tL, lbinU = tL + Gap, lbin = bins$lbin[tokeep])
+  nb <- length(tL)
+  Lm <- bins$lbin[tokeep]
 
   clip <- function(G) {
     C <- G[tokeep, tokeep]
@@ -62,25 +62,26 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, stm_fun, partypes,
   }
 
   ## ---- compound the timesteps in calendar order from 'start' ----
-  o <- order(tsteps); tsteps <- tsteps[o]; season_pars <- season_pars[o]
+  o <- order(tsteps)
+  tsteps <- tsteps[o]; season_pars <- season_pars[o]; floors <- floors[o]
   k <- which(tsteps >= start)[1]
   if (is.na(k)) k <- 1
   ord <- c(k:length(tsteps), seq_len(k - 1))
   A <- diag(length(bins$lbinL))
-  for (s in ord) A <- stm_fun(setNames(season_pars[[s]], partypes), bins) %*% A
+  for (s in ord) A <- stm_fun(season_pars[[s]], bins, floor = floors[s], ...) %*% A
   A <- clip(A)
 
-  ## ---- starting values: largest-growth season's shape, summed AveGrowth ----
+  ## ---- starting values ----
+  ## Shape from the season with the largest Amax; annual Amax = sum of the
+  ## seasonal Amax (AveGrowth is log(Amax), so sum on the natural scale).
   lower <- setNames(lower, partypes); upper <- setNames(upper, partypes)
-  big <- which.max(sapply(season_pars, `[`, 1))
-  p0  <- setNames(season_pars[[big]], partypes)
-  if ("AveGrowth" %in% partypes)
-    p0["AveGrowth"] <- sum(sapply(season_pars, function(p) p[match("AveGrowth", partypes)]))
+  a   <- sapply(season_pars, `[`, 1)
+  p0  <- setNames(as.numeric(season_pars[[which.max(a)]]), partypes)
+  p0[1] <- log(sum(exp(a)))
   pad <- 1e-4 * (upper - lower)
   p0  <- pmin(pmax(p0, lower + pad), upper - pad)
 
-  ## ---- projection fit: annual STM built on the full bins, then clipped the
-  ## ---- same way, so both sides of the comparison see identical edge handling
+  ## ---- projection fit ----
   if (is.null(wts)) wts <- rep(1, nb)
   if (length(wts) != nb) stop("wts must have one value per IMuLT bin (", nb, ")")
   wts <- wts / sum(wts)
@@ -88,7 +89,7 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, stm_fun, partypes,
   ie   <- partypes %in% est
   eps  <- 1e-12
   full <- function(th) { p <- p0; p[ie] <- th; p }
-  ahat <- function(p) clip(stm_fun(p, bins))
+  ahat <- function(p) clip(stm_fun(p, bins, floor = ann_floor, ...))
   obj  <- function(th) {
     Ahat <- ahat(full(th))
     if (any(!is.finite(Ahat))) return(1e10)
@@ -103,9 +104,9 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, stm_fun, partypes,
   Ahat <- ahat(pars)
 
   moments <- function(M, src) {
-    m  <- colSums(M * tbins$lbin)
-    sd <- sqrt(colSums(M * outer(tbins$lbin, m, "-")^2))
-    data.frame(L = tbins$lbin, inc = m - tbins$lbin, sd = sd, p_stay = diag(M), source = src)
+    m  <- colSums(M * Lm)
+    sd <- sqrt(colSums(M * outer(Lm, m, "-")^2))
+    data.frame(L = Lm, inc = m - Lm, sd = sd, p_stay = diag(M), source = src)
   }
 
   list(pars = pars, objective = op$objective, convergence = op$convergence,
