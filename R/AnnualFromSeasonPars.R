@@ -45,8 +45,10 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, floors = 0,
   ## ---- IMuLT bins: a subset of the Tag2STM bins ----
   Gap    <- as.numeric(names(which.max(table(round(diff(bins$lbinL), 8)))))
   tL     <- seq(LowLB, UpLB, Gap)
-  tokeep <- match(tL, bins$lbinL)
-  if (anyNA(tokeep)) stop("LowLB/UpLB do not fall on the bins grid (width ", Gap, " mm)")
+  tokeep <- match(round(tL, 6), round(bins$lbinL, 6))   # rounded: exact float equality is fragile
+  if (anyNA(tokeep))
+    stop("Lower edges not found in bins$lbinL (width ", Gap, " mm): ",
+         paste(tL[is.na(tokeep)], collapse = ", "))
   if (any(abs(diff(bins$lbinL[c(tokeep, max(tokeep) + 1)]) - Gap) > 1e-8, na.rm = TRUE))
     stop("bins are not a constant ", Gap, " mm within the IMuLT range")
   nb <- length(tL)
