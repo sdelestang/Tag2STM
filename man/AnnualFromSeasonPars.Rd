@@ -7,7 +7,8 @@
 AnnualFromSeasonPars(
   season_pars,
   tsteps,
-  stm_fun,
+  floors = 0,
+  stm_fun = STMfromPars,
   partypes,
   lower,
   upper,
@@ -16,55 +17,60 @@ AnnualFromSeasonPars(
   LowLB,
   UpLB,
   start = min(tsteps),
+  ann_floor = 0,
   wts = NULL,
-  plus_group = FALSE
+  plus_group = FALSE,
+  ...
 )
 }
 \arguments{
-\item{season_pars}{List of numeric parameter vectors, one per timestep,
-each in \code{partypes} order.}
+\item{season_pars}{List of length-7 parameter vectors, one per timestep,
+in growmodPar order: log(Amax), P2, log(P1), log(P3), LsigGrow,
+Pmoult intercept, log(-Pmoult slope).}
 
 \item{tsteps}{Integer timestep index of each element of season_pars.}
 
-\item{stm_fun}{function(pars, bins) -> column-stochastic STM (columns =
-from-length) for one step, where pars is a named vector in partypes
-order and bins a list(lbinL, lbinU, lbin). Must be IMuLT's own builder.}
+\item{floors}{Per-timestep moult-probability floors (growmodPar's
+mpy_floor for those timesteps). Default 0.}
 
-\item{partypes}{Parameter names, in order.}
+\item{stm_fun}{STM builder, function(pars, bins, floor, ...). Default
+STMfromPars.}
 
-\item{lower, upper}{Bounds for each parameter (length = length(partypes)).}
+\item{partypes}{Parameter names, in order (labels only).}
+
+\item{lower, upper}{Bounds for each parameter.}
 
 \item{est}{Names of parameters to estimate; the rest stay at start values.}
 
-\item{bins}{Tag2STM length bins (from MakeLbin). Must be on IMuLT's bin
-width; their wider span is used for compounding so growth near the
-edges of the IMuLT range is not truncated mid-year.}
+\item{bins}{Tag2STM length bins (from MakeLbin), on IMuLT's bin width.
+Their wider span is used for compounding.}
 
-\item{LowLB, UpLB}{Lower edges of IMuLT's first and last bins. Must lie on
-the bins grid.}
+\item{LowLB, UpLB}{Lower edges of IMuLT's first and last bins.}
 
-\item{start}{Timestep at which IMuLT's growth year begins. The product
-starts at the first fitted timestep >= start, wrapping around.}
+\item{start}{Timestep at which IMuLT's growth year begins.}
+
+\item{ann_floor}{Moult-probability floor for the annual STM. Default 0.}
 
 \item{wts}{Weights over IMuLT from-bins; NULL = uniform.}
 
 \item{plus_group}{TRUE accumulates mass above UpLB into the top IMuLT bin;
-FALSE drops and renormalises (ClipSTM behaviour). Match how stm_fun
-treats its top bin.}
+FALSE drops and renormalises (ClipSTM behaviour).}
+
+\item{...}{Passed to stm_fun (e.g. n_pmoult1, P5).}
 }
 \value{
 list(pars, objective, convergence, message, A, Ahat, moments)
 }
 \description{
-Rebuilds each timestep's STM from its fitted parameters with the IMuLT
-builder on the Tag2STM length bins, compounds them into a 12-month STM,
-clips to the IMuLT length range, then fits a single annual parameter set
-whose one-step STM best reproduces the compounded matrix. The objective is
-a weighted KL divergence summed over from-length columns.
+Rebuilds each timestep's STM from its fitted growmodPar parameters on the
+Tag2STM length bins, compounds them into a 12-month STM, clips to the
+IMuLT length range, then fits a single annual parameter set whose
+one-step STM best reproduces the compounded matrix. The objective is a
+weighted KL divergence summed over from-length columns.
 }
 \details{
-This is the parameter-only counterpart of MakeAnnualPars(). It needs no
-fitted model object, so it can run inside the timestep-selection script
-from paroutlist alone. It works from mean growth (no year effects), which
-is like-for-like with the per-timestep parameters written to IMuLT.
+Parameter-only counterpart of MakeAnnualPars(): needs no fitted model
+object, so it runs inside the timestep-selection script from paroutlist.
+Works from mean growth (no year effects), like-for-like with the
+per-timestep parameters written to IMuLT.
 }
