@@ -292,12 +292,29 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## full rationale. Centred well beyond the observed size range (20x the
   ## lbin span) so a genuinely flat plateau costs almost nothing, but wide
   ## enough (default sd 3, i.e. a factor of ~20 either side) that it barely
-  ## constrains anything short of that. Set GrowthP3_prior_sd to Inf to
-  ## switch it off entirely.
+  ## constrains anything short of that.
+  ##
+  ## OFF BY DEFAULT (sd = Inf). Because the curve swaps abruptly at P2 and
+  ## both logistics are centred there, "P3 very large" means a plateau at
+  ## exactly Amax/2 above P2. The prior therefore pulled the large-size end
+  ## toward Amax/2 rather than leaving it free: on lobster both fits sat on
+  ## the prior mean, which stopped the no-hurdle model reducing growth at
+  ## large sizes and biased the hurdle comparison. A large P3 only costs a
+  ## poorly conditioned Hessian for that one parameter. Set
+  ## datain$GrowthP3_prior_sd to a finite value (the old default was 3) to
+  ## turn it back on.
   if (is.null(datain$GrowthP3_prior_mean)) {
     datain$GrowthP3_prior_mean <- log(diff(range(datain$lbin)) * 20)
   }
-  if (is.null(datain$GrowthP3_prior_sd))    datain$GrowthP3_prior_sd   <- 3
+  if (is.null(datain$GrowthP3_prior_sd))    datain$GrowthP3_prior_sd   <- Inf
+  ## Lower bound on the two logistic scales P1 and P3 (mm). Without it the
+  ## optimiser can drive P1 to ~0, turning the increment curve into a step
+  ## at P2 (lobster hurdle fit: log(P1) = -15), with all size structure then
+  ## pushed into Pmoult. A step change in increment at one length is not
+  ## biology. Default one bin width, i.e. a 10-90% transition no narrower
+  ## than about 4.4 bins. Set datain$Growth_Pmin <- 0 for the old,
+  ## unbounded behaviour. STMfromPars() must use the same value.
+  if (is.null(datain$Growth_Pmin))          datain$Growth_Pmin <- median(diff(datain$lbin))
   ## P5 (the swap/blend transition width) is now FIXED, not estimated --
   ## see @details point 5 above for the full rationale. Plain data, no
   ## prior needed: datain$Growth_P5_fixed default 0.1 (a steep, near
@@ -478,7 +495,9 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## (and point 5, for why P5 is fixed) in the roxygen header above for
   ## the full rationale.
   ##
-  ## Growth_par is ntsteps x 4, columns: log(Amax), P2, log(P1), log(P3).
+  ## Growth_par is ntsteps x 4, columns: log(Amax), P2,
+  ## log(P1 - Growth_Pmin), log(P3 - Growth_Pmin) -- the scales are offset
+  ## by the floor so they can never fall below it (see the defaults block).
   ## Only goodts rows are read here (non-goodts rows are ignored, same
   ## convention as Pmoult_par). The two scale-type parameters (P1, P3) and
   ## the amplitude (Amax) are estimated on the log scale so they stay
@@ -503,8 +522,8 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   for (ns in goodts) {
     Amax <- exp(Growth_par[ns, 1])
     P2   <- Growth_par[ns, 2]
-    P1   <- exp(Growth_par[ns, 3])
-    P3   <- exp(Growth_par[ns, 4])
+    P1   <- Growth_Pmin + exp(Growth_par[ns, 3])
+    P3   <- Growth_Pmin + exp(Growth_par[ns, 4])
 
     xdev  <- lbin - P2
     grow1 <- 1 / (1 + exp(xdev / P1))
@@ -806,11 +825,18 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ##
   ## Note the prior is on the logistic BEFORE the mpy floor is applied, so
   ## with mpy > 0 the resting Pmoult is above 0.95 accordingly.
+  ## An infinite sd switches that element off. The guard is needed:
+  ## dnorm(x, m, Inf, log = TRUE) is -Inf, not 0, so without it "sd = Inf"
+  ## made the objective infinite rather than removing the prior. The sds
+  ## are plain data, so the branch is decided at trace time.
   PenPmoult <- 0
   if (moult_hurdle) for (ns in goodts) {
-    PenPmoult <- PenPmoult -
-      dnorm(Pmoult_par[ns, 1], Pmoult_prior_mean[1], Pmoult_prior_sd[1], log = TRUE) -
-      dnorm(Pmoult_par[ns, 2], Pmoult_prior_mean[2], Pmoult_prior_sd[2], log = TRUE)
+    for (cc in 1:2) {
+      if (is.finite(Pmoult_prior_sd[cc])) {
+        PenPmoult <- PenPmoult -
+          dnorm(Pmoult_par[ns, cc], Pmoult_prior_mean[cc], Pmoult_prior_sd[cc], log = TRUE)
+      }
+    }
   }
 
   ## --- Soft anchor prior on Growth_par's log(P3) --------------------------
@@ -841,7 +867,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## Summed over goodts rows only, same reasoning as PenPmoult. Set
   ## datain$GrowthP3_prior_sd <- Inf to switch this off entirely.
   PenGrowthP3 <- 0
-  for (ns in goodts) {
+  if (is.finite(GrowthP3_prior_sd)) for (ns in goodts) {   # Inf = off; see PenPmoult
     PenGrowthP3 <- PenGrowthP3 -
       dnorm(Growth_par[ns, 4], GrowthP3_prior_mean, GrowthP3_prior_sd, log = TRUE)
   }
@@ -909,8 +935,9 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   Growth_P3   <- rep(0, ntsteps)
   Growth_Amax[goodts] <- exp(Growth_par[goodts, 1])
   Growth_P2[goodts]   <- Growth_par[goodts, 2]
-  Growth_P1[goodts]   <- exp(Growth_par[goodts, 3])
-  Growth_P3[goodts]   <- exp(Growth_par[goodts, 4])
+  Growth_P1[goodts]   <- Growth_Pmin + exp(Growth_par[goodts, 3])
+  Growth_P3[goodts]   <- Growth_Pmin + exp(Growth_par[goodts, 4])
+  REPORT(Growth_Pmin)
   REPORT(Growth_Amax)
   REPORT(Growth_P1)
   REPORT(Growth_P2)

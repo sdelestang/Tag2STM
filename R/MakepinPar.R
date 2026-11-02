@@ -131,12 +131,16 @@ MakepinPar <- function(avgrowth = 2,
   # unused). No P5 entry here any more -- P5 is fixed data
   # (datain$Growth_P5_fixed, defaulted inside growmodPar), not an
   # estimated parameter, so Growth_par is 4 columns rather than 5.
+  # P1 and P3 are offset by the floor growmodPar puts on them
+  # (datain$Growth_Pmin, default one bin width), so the starting scales are
+  # still range/20 and range/5 on the natural scale.
   lbin_range <- diff(range(datain$lbin))
+  Pmin <- if (is.null(datain$Growth_Pmin)) median(diff(datain$lbin)) else datain$Growth_Pmin
   growth_start <- c(
     log(avgrowth),
     median(datain$lbin),
-    log(lbin_range / 20),
-    log(lbin_range / 5)
+    log(max(lbin_range / 20 - Pmin, 0.1)),
+    log(max(lbin_range / 5  - Pmin, 0.1))
   )
 
   # Pmoult_par starting values -- L50 and slope magnitude, converted to the

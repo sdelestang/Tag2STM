@@ -176,7 +176,8 @@ CompareMoultHurdle <- function(datain, pin_args = list(), map_args = list(),
     for (ns in sort(datain$goodts)) {
       pars <- c(f$pl$Growth_par[ns, ], f$pl$LsigGrow, f$rep$Pmoult_par[ns, ])
       A <- STMfromPars(pars, bins, floor = f$rep$mpy_floor[ns],
-                       n_pmoult1 = n1, P5 = P5) %*% A
+                       n_pmoult1 = n1, P5 = P5,
+                       Pmin = f$rep$Growth_Pmin) %*% A
     }
     data.frame(
       inc    = colSums(A * bins$lbin) - bins$lbin,
