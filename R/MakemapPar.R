@@ -105,6 +105,12 @@
 #'   is fixed data (\code{datain$Growth_P5_fixed}), so there is nothing to
 #'   map or share for it.
 #'
+#' @section Moult hurdle on/off:
+#' Whether \code{Pmoult_par} is mapped at all is read from \code{pin}: a pin
+#' built with \code{MakepinPar(moult_hurdle = FALSE)} has no
+#' \code{Pmoult_par} (or \code{mpy_split_par}), so neither block adds
+#' anything to \code{map} and \code{Pmoult_shared} is ignored.
+#'
 #' @export
 MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
                      Pmoult_shared = FALSE, Growth_shared = FALSE,
@@ -161,26 +167,35 @@ MakemapPar <- function(pin, re = FALSE, estTemporalGrowth = TRUE,
   ## initial values (NA), same reasoning as Growth_par below. goodts
   ## rows: independent factor levels by default, or all sharing one pair of
   ## levels if Pmoult_shared = TRUE.
+  ##
+  ## Skipped entirely when pin has no Pmoult_par, i.e. it was built with
+  ## MakepinPar(moult_hurdle = FALSE) -- the 5-parameter model. The mode is
+  ## read from pin, not passed separately, so pin and map cannot disagree.
   ntsteps <- datain$ntsteps
-  Pmoult_map <- matrix(NA_integer_, nrow = ntsteps, ncol = 2)
+  if ('Pmoult_par' %in% names(pin)) {
+    Pmoult_map <- matrix(NA_integer_, nrow = ntsteps, ncol = 2)
 
-  if (Pmoult_shared) {
-    # every goodts row -> the same two levels (1 = intercept, 2 = slope)
-    Pmoult_map[datain$goodts, 1] <- 1
-    Pmoult_map[datain$goodts, 2] <- 2
-  } else {
-    free_idx <- 0
-    for (ns in datain$goodts) {
-      for (cc in 1:2) {
-        free_idx <- free_idx + 1
-        Pmoult_map[ns, cc] <- free_idx
+    if (Pmoult_shared) {
+      # every goodts row -> the same two levels (1 = intercept, 2 = slope)
+      Pmoult_map[datain$goodts, 1] <- 1
+      Pmoult_map[datain$goodts, 2] <- 2
+    } else {
+      free_idx <- 0
+      for (ns in datain$goodts) {
+        for (cc in 1:2) {
+          free_idx <- free_idx + 1
+          Pmoult_map[ns, cc] <- free_idx
+        }
       }
     }
+    # as.vector() on a matrix is column-major, matching how MakeADFun flattens
+    # a matrix-valued parameter -- must stay column-major for map and pin to
+    # correspond to the same elements.
+    map$Pmoult_par <- as.factor(as.vector(Pmoult_map))
+  } else if (Pmoult_shared) {
+    message("MakemapPar: Pmoult_shared = TRUE ignored -- pin has no ",
+            "Pmoult_par (built with moult_hurdle = FALSE).")
   }
-  # as.vector() on a matrix is column-major, matching how MakeADFun flattens
-  # a matrix-valued parameter -- must stay column-major for map and pin to
-  # correspond to the same elements.
-  map$Pmoult_par <- as.factor(as.vector(Pmoult_map))
 
   ## --- Growth_par mapping (new) -------------------------------------------
   ## pin$Growth_par is ntsteps x 4 (see Makepin): log(Amax), P2, log(P1),

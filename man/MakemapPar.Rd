@@ -61,3 +61,11 @@ explicit handling for \code{Pmoult_par} and \code{Growth_par}, both
 \code{ntsteps x n} matrices rather than flat vectors -- see
 \code{\link{MakepinPar}}.)
 }
+\section{Moult hurdle on/off}{
+
+Whether \code{Pmoult_par} is mapped at all is read from \code{pin}: a pin
+built with \code{MakepinPar(moult_hurdle = FALSE)} has no
+\code{Pmoult_par} (or \code{mpy_split_par}), so neither block adds
+anything to \code{map} and \code{Pmoult_shared} is ignored.
+}
+

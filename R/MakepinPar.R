@@ -28,6 +28,17 @@
 #' @param TemporalGrowth Logical, default FALSE. If TRUE, adds \code{Sraw}
 #'   for year-specific growth scaling (requires
 #'   \code{datain <- add_year_support(datain)} first).
+#' @param moult_hurdle Logical, default TRUE. TRUE gives the 7-parameter
+#'   per-season model (4 growth + CV + 2 moult-probability parameters).
+#'   FALSE gives the 5-parameter model: \code{Pmoult_par} (and with it
+#'   \code{mpy_split_par}) is left out of \code{pin} altogether, and every
+#'   animal moults with certainty at every \code{goodts} opportunity, so
+#'   all size structure has to be carried by the increment. This is THE
+#'   switch: \code{\link{MakemapPar}} and \code{\link{growmodPar}} both
+#'   detect the mode from whether \code{Pmoult_par} is in \code{pin}, so
+#'   there is nothing to keep in sync, and a pin rebuilt from
+#'   \code{mod$env$parList()} (which drops attributes) keeps its mode.
+#'   \code{datain$mpy} and \code{datain$n_pmoult1} are ignored when FALSE.
 #'
 #' @details
 #' \strong{Growth_par starting values.} The three shape parameters of the
@@ -95,7 +106,8 @@ MakepinPar <- function(avgrowth = 2,
                     LsigGrow = log(2),
                     LMerrorRelsigma = 0,
                     LMerrorRecsigma = 0,
-                    TemporalGrowth = NULL) {
+                    TemporalGrowth = NULL,
+                    moult_hurdle = TRUE) {
   # Both now default to whatever Makedata() stored in datain, so they are
   # set once rather than passed separately to Makedata and Makepin (where
   # they could disagree). An explicit argument still wins, so existing
@@ -143,18 +155,39 @@ MakepinPar <- function(avgrowth = 2,
     MerrorRel = rep(0, nobs),
     LMerrorRelsigma = LMerrorRelsigma,
     MerrorRec = rep(0, nobs),
-    LMerrorRecsigma = LMerrorRecsigma,
-    Pmoult_par = matrix(
+    LMerrorRecsigma = LMerrorRecsigma
+  )
+
+  # Moult-probability hurdle. Present => 7-parameter model; absent =>
+  # 5-parameter model (Pmoult = 1 at every goodts opportunity). Presence of
+  # Pmoult_par in pin is what MakemapPar and growmodPar test, so this is the
+  # only place the mode is decided.
+  if (moult_hurdle) {
+    pin$Pmoult_par <- matrix(
       rep(c(par1_start, par2_start), each = ntsteps),
       nrow = ntsteps, ncol = 2
     )
-  )
-
-  # Estimated split of datain$mpy across goodts seasons (softmax
-  # construction in growmod)...
-  n_goodts <- length(datain$goodts)
-  if (n_goodts > 1) {
-    pin$mpy_split_par <- rep(0, n_goodts - 1)
+    # Estimated split of datain$mpy across goodts seasons (softmax
+    # construction in growmod). Only meaningful with a hurdle: the floor is
+    # a floor on Pmoult.
+    n_goodts <- length(datain$goodts)
+    if (n_goodts > 1) {
+      pin$mpy_split_par <- rep(0, n_goodts - 1)
+    }
+  } else {
+    if (!is.null(datain$mpy) && datain$mpy > 0) {
+      message("MakepinPar(moult_hurdle = FALSE): datain$mpy = ", datain$mpy,
+              " is ignored -- with no hurdle every animal moults at every ",
+              "goodts opportunity.")
+    }
+    if (length(datain$goodts) > 1) {
+      message("MakepinPar(moult_hurdle = FALSE) with ", length(datain$goodts),
+              " goodts windows: every animal is forced to moult ",
+              length(datain$goodts), " times a year at every size. Large ",
+              "animals that skip a window can only be represented by that ",
+              "window's increment shrinking toward zero (leave Growth_shared ",
+              "= FALSE so each window has its own curve).")
+    }
   }
 
   # Tagging-induced moult suppression as a recovery function of total time
@@ -210,6 +243,8 @@ MakepinPar <- function(avgrowth = 2,
   }
 
   attr(pin, "TemporalGrowth") <- TemporalGrowth
+  attr(pin, "moult_hurdle")   <- moult_hurdle   # informational only; the
+                                                # mode is read from names(pin)
 
   return(pin)
 }

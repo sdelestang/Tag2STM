@@ -2,6 +2,7 @@
 
 export(AnnualFromSeasonPars)
 export(ClipSTM)
+export(CompareMoultHurdle)
 export(EstimateM)
 export(EstimateMBrownie)
 export(EstimateTagLoss)

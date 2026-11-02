@@ -49,6 +49,20 @@ internal identification mixture (replacing the old external auxiliary
 data machinery), and, optionally, year-specific proportional growth
 scaling.
 
+\strong{Moult hurdle on/off.} If \code{pin} contains \code{Pmoult_par}
+(the default from \code{\link{MakepinPar}}) the model has 7 parameters
+per season: 4 growth-curve, the CV, and 2 moult-probability. If
+\code{pin} was built with \code{MakepinPar(moult_hurdle = FALSE)} there
+is no \code{Pmoult_par}, \code{Pmoult} is identically 1 at every
+\code{goodts} opportunity, the \code{mpy} floor and \code{n_pmoult1}
+are inert, and \code{PenPmoult} is 0 -- a 5-parameter model in which
+all size structure is carried by the increment. Because the CV is
+proportional, an increment near zero also has near-zero spread, so the
+5-parameter model can mimic "not moulting" for large animals; what it
+cannot produce is a mixture of non-moulters and full-increment moulters
+at the same size. That bimodality is what the comparison tests.
+Compare fits on the reported \code{NLL_data}, not the objective.
+
 \strong{CHANGES FROM THE PREVIOUS VERSION}
 
 \strong{1. Minimum-moults-per-year floor (\code{datain$mpy}).} Some

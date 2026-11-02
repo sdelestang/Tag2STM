@@ -18,6 +18,20 @@
 #' data machinery), and, optionally, year-specific proportional growth
 #' scaling.
 #'
+#' \strong{Moult hurdle on/off.} If \code{pin} contains \code{Pmoult_par}
+#' (the default from \code{\link{MakepinPar}}) the model has 7 parameters
+#' per season: 4 growth-curve, the CV, and 2 moult-probability. If
+#' \code{pin} was built with \code{MakepinPar(moult_hurdle = FALSE)} there
+#' is no \code{Pmoult_par}, \code{Pmoult} is identically 1 at every
+#' \code{goodts} opportunity, the \code{mpy} floor and \code{n_pmoult1}
+#' are inert, and \code{PenPmoult} is 0 -- a 5-parameter model in which
+#' all size structure is carried by the increment. Because the CV is
+#' proportional, an increment near zero also has near-zero spread, so the
+#' 5-parameter model can mimic "not moulting" for large animals; what it
+#' cannot produce is a mixture of non-moulters and full-increment moulters
+#' at the same size. That bimodality is what the comparison tests.
+#' Compare fits on the reported \code{NLL_data}, not the objective.
+#'
 #' @param pin List. Parameter list from \code{Makepin}.
 #' @param Like Integer, 1 (default, asymmetric KL) or 2 (symmetric KL).
 #'   Structural switch, plain data at trace time.
@@ -290,6 +304,15 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## step-function swap), overridable per analysis.
   if (is.null(datain$Growth_P5_fixed))      datain$Growth_P5_fixed     <- 0.1
 
+  ## Moult hurdle on/off is decided by the PIN, not by datain: a pin built
+  ## with MakepinPar(moult_hurdle = FALSE) has no Pmoult_par. names(pin) is
+  ## plain data at trace time, so this is a structural switch like
+  ## TemporalGrowth -- one tape per mode, no branching on AD values.
+  ##   TRUE  -> 7 parameters per season (4 growth, CV, 2 Pmoult)
+  ##   FALSE -> 5 parameters per season; Pmoult = 1 at every goodts
+  ##            opportunity, so all size structure sits in the increment.
+  moult_hurdle <- "Pmoult_par" %in% names(pin)
+
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
   nobs <- length(Rccl)
@@ -319,7 +342,11 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ##
   ## When n_goodts <= 1 there's nothing to split -- mpy goes entirely to
   ## the single season, same as before.
-  if (n_goodts > 1) {
+  ## With no hurdle there is no Pmoult to floor (and no mpy_split_par in
+  ## pin), so the floor is 0 throughout -- reported as such.
+  if (!moult_hurdle) {
+    mpy_floor_vec <- rep(0, n_goodts)
+  } else if (n_goodts > 1) {
     split_raw <- c(mpy_split_par, 0)     # length n_goodts, last entry anchored
     split_exp <- exp(split_raw)
     split     <- split_exp / sum(split_exp)   # sums to 1 by construction
@@ -381,7 +408,11 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
 
   ## Pmoult_fn: the smallest n_pmoult1 length bins are hard-fixed at exactly
   ## 1 (juveniles moult with certainty
+  ## With moult_hurdle = FALSE it is identically 1 (5-parameter model).
+  ## Suppression, when on, still scales it (r * 1), so tagged animals can
+  ## still miss a moult early in liberty -- size-independently.
   Pmoult_fn <- function(ns, fm) {
+    if (!moult_hurdle) return(1)
     if (fm <= n_pmoult1) return(1)
     fl <- mpy_floor[ns]
     slope <- -exp(Pmoult_par[ns, 2])   # forces slope < 0: Pmoult can only decrease with size
@@ -776,7 +807,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## Note the prior is on the logistic BEFORE the mpy floor is applied, so
   ## with mpy > 0 the resting Pmoult is above 0.95 accordingly.
   PenPmoult <- 0
-  for (ns in goodts) {
+  if (moult_hurdle) for (ns in goodts) {
     PenPmoult <- PenPmoult -
       dnorm(Pmoult_par[ns, 1], Pmoult_prior_mean[1], Pmoult_prior_sd[1], log = TRUE) -
       dnorm(Pmoult_par[ns, 2], Pmoult_prior_mean[2], Pmoult_prior_sd[2], log = TRUE)
@@ -820,6 +851,13 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## @details point 5 above. There is nothing left to anchor with a prior,
   ## so PenGrowthP5 no longer exists.
 
+  ## Data part of the objective only (KL terms + identification mixture),
+  ## free of the parameter priors. This is what to compare between the
+  ## 5- and 7-parameter fits: PenPmoult exists in one and not the other,
+  ## so TLL itself is not like-for-like. Still a KL pseudo-likelihood
+  ## weighted by nlob, so NOT a basis for a likelihood-ratio test.
+  NLL_data <- -sum(LL) - TIdentLL
+
   TLL <- -sum(LL) - TIdentLL + PenSigError + PenMerrorRel + PenMerrorRec +
     PenPmoult + PenGrowthP3
 
@@ -848,7 +886,16 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
     for (fm in 1:nlbin) Pmoult_vec[ns, fm] <- Pmoult_fn(ns, fm)
   }
   REPORT(Pmoult_vec)
+  ## Without a hurdle, report a saturated Pmoult_par so downstream code that
+  ## rebuilds STMs from the 7-element parameter vector (STMfromPars,
+  ## AnnualFromSeasonPars, build_lenout_envelope) reproduces Pmoult = 1
+  ## exactly: plogis(100 - 1.4e-11 * L) == 1 in double precision.
+  if (!moult_hurdle) {
+    Pmoult_par <- matrix(rep(c(100, -25), each = ntsteps), ntsteps, 2)
+  }
   REPORT(Pmoult_par)
+  REPORT(moult_hurdle)
+  REPORT(NLL_data)
   REPORT(PenPmoult)
   REPORT(PenGrowthP3)
   REPORT(mpy_floor)

@@ -11,7 +11,8 @@ MakepinPar(
   LsigGrow = log(2),
   LMerrorRelsigma = 0,
   LMerrorRecsigma = 0,
-  TemporalGrowth = NULL
+  TemporalGrowth = NULL,
+  moult_hurdle = TRUE
 )
 }
 \arguments{
@@ -36,6 +37,18 @@ recapture measurement-error random effects.}
 \item{TemporalGrowth}{Logical, default FALSE. If TRUE, adds \code{Sraw}
 for year-specific growth scaling (requires
 \code{datain <- add_year_support(datain)} first).}
+
+\item{moult_hurdle}{Logical, default TRUE. TRUE gives the 7-parameter
+per-season model (4 growth + CV + 2 moult-probability parameters).
+FALSE gives the 5-parameter model: \code{Pmoult_par} (and with it
+\code{mpy_split_par}) is left out of \code{pin} altogether, and every
+animal moults with certainty at every \code{goodts} opportunity, so
+all size structure has to be carried by the increment. This is THE
+switch: \code{\link{MakemapPar}} and \code{\link{growmodPar}} both
+detect the mode from whether \code{Pmoult_par} is in \code{pin}, so
+there is nothing to keep in sync, and a pin rebuilt from
+\code{mod$env$parList()} (which drops attributes) keeps its mode.
+\code{datain$mpy} and \code{datain$n_pmoult1} are ignored when FALSE.}
 }
 \value{
 A named list of initial parameter values. Key elements:
