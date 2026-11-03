@@ -368,7 +368,8 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
       scale_fill_gradient2(low = "#e84b33", mid = "white", high = "#3481c8",
                            midpoint = 0, limits = c(-lim, lim),
                            name = "Mean residual (mm)") +
-      coord_equal() +
+      ## No coord_equal(): a fixed aspect ratio makes patchwork shrink the
+      ## whole right-hand column to fit this panel.
       labs(x = "Longitude", y = "Latitude",
            subtitle = sub_txt) +
       theme_bw() +
@@ -382,7 +383,7 @@ EF
 GG
 "
     final <- pa + pb + pc + pg + pd + pe + pf +
-      plot_layout(design = layout, guides = "collect") +
+      plot_layout(design = layout, guides = "collect", widths = c(1, 1)) +
       plot_annotation(tag_levels = "a", caption = run_label,
                       theme = theme(plot.margin = margin(2, 2, 2, 2),
                                     plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))) &
