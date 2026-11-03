@@ -32,8 +32,12 @@
 #'   (annual mode). Default: the regular-width part of \code{bins}.
 #' @param ann_start Timestep at which IMuLT's growth year begins.
 #' @param ann_est Parameter types the annual projection estimates; the rest
-#'   stay at the sub-annual fit's values. Default fixes the CV, which the
-#'   annual STM cannot identify when growth is small relative to bin width.
+#'   stay at the sub-annual fit's values. A character vector, or
+#'   \code{function(sex, area, period)} returning one. Default: all.
+#' @param ann_cv_cap Logical, default TRUE. Caps the annual CV (LsigGrow) in
+#'   the projection at the larger of the per-moult CV and the CV of a year's
+#'   growth among animals that moulted (see Details). Has no effect unless
+#'   LsigGrow is in \code{ann_est}.
 #' @param ann_floor Moult-probability floor for the annual STM.
 #' @param ann_wts NULL, a weight vector over IMuLT bins, or
 #'   \code{function(sex, area, period)} returning one.
@@ -62,6 +66,24 @@
 #' @param tag File tag. Default \code{"annual_<binw>mm"} or
 #'   \code{"<n>ts_<binw>mm"}.
 #'
+#' @details
+#' \strong{The annual CV.} A year's growth is the sum of however many moults
+#' fell in it, so its spread differs from one moult's: smaller when animals
+#' moult several times a year (about 1/sqrt(moults) of it), similar when they
+#' moult once. The annual projection therefore estimates the CV. But when
+#' annual growth is smaller than a bin (slow growers), the annual STM cannot
+#' identify it, and the optimiser runs to a degenerate solution -- Amax near
+#' 0 and CV very large -- that reproduces the stay/next-bin split without
+#' meaning anything. That failure always pushes the CV up, so the cap blocks
+#' it without constraining well-identified cases: the cap is the larger of
+#' the per-moult CV and the CV of a year's growth among animals that moulted
+#' at least once, computed from the fitted windows (independent moults, one
+#' increment per moult), averaged over the IMuLT length range weighted by the
+#' probability of moulting. Where growth is informative the estimate sits
+#' below the cap; where it is not, it stops at the cap, which is then the
+#' best available value. Crabs moulting at most once a year: cap = per-moult
+#' CV, which is what a free fit returns anyway.
+#'
 #' @return Invisibly, a list: \code{Params}, \code{pertab} (as written, without
 #'   bookkeeping columns), \code{annlist} (annual mode: one
 #'   \code{AnnualFromSeasonPars} result per matrix), \code{tag}.
@@ -75,7 +97,7 @@ GrowthToIMuLT <- function(paroutlist, selected, bins, mode = c("annual", "timest
                           lower = c(-5,   0, -5, -5, -5, -20, -15),
                           upper = c( 4, 200,  6, 15,  4,  20,   3),
                           ann_LowLB = NULL, ann_UpLB = NULL, ann_start = 1,
-                          ann_est = setdiff(partypes, "LsigGrow"),
+                          ann_est = partypes, ann_cv_cap = TRUE,
                           ann_floor = 0, ann_wts = NULL, ann_plus = FALSE,
                           n_pmoult1 = 1, P5 = 0.1,
                           imult_est = list(), est_phase = 3, fixed_phase = -4,
@@ -166,11 +188,22 @@ GrowthToIMuLT <- function(paroutlist, selected, bins, mode = c("annual", "timest
       w     <- if (is.function(ann_wts)) ann_wts(mats$sex[i], mats$fitarea[i], mats$period[i]) else ann_wts
       flr   <- if (is.null(fitpars$mpy_floor)) 0 else fitpars$mpy_floor[tst]
       Pmin  <- if (is.null(fitpars$Growth_Pmin)) 0 else fitpars$Growth_Pmin
-      estflag[rows] <- partypes %in% ann_est
+      est_i <- if (is.function(ann_est)) ann_est(mats$sex[i], mats$fitarea[i], mats$period[i]) else ann_est
+      estflag[rows] <- partypes %in% est_i
+
+      ## Cap the annual CV: see @details
+      up_i <- upper
+      iL   <- which(partypes == "LsigGrow")
+      cap  <- NA_real_
+      if (ann_cv_cap && length(iL) == 1 && "LsigGrow" %in% est_i) {
+        cap <- annual_cv_cap(spars, flr, bins, Pmin = Pmin, P5 = P5, n_pmoult1 = n_pmoult1,
+                             LowLB = ann_LowLB, UpLB = ann_UpLB)
+        up_i[iL] <- min(upper[iL], log(cap))
+      }
 
       ann <- AnnualFromSeasonPars(spars, tst, floors = flr, stm_fun = STMfromPars,
-                                  partypes = partypes, lower = lower, upper = upper,
-                                  est = ann_est, bins = bins, LowLB = ann_LowLB, UpLB = ann_UpLB,
+                                  partypes = partypes, lower = lower, upper = up_i,
+                                  est = est_i, bins = bins, LowLB = ann_LowLB, UpLB = ann_UpLB,
                                   start = ann_start, ann_floor = ann_floor, wts = w,
                                   plus_group = ann_plus, n_pmoult1 = n_pmoult1, P5 = P5,
                                   Pmin = Pmin)
@@ -186,6 +219,10 @@ GrowthToIMuLT <- function(paroutlist, selected, bins, mode = c("annual", "timest
                   ", objective ", signif(ann$objective, 3), ")")
         }
       }
+      if (!is.na(cap) && abs(ann$pars[iL] - log(cap)) < 1e-3)
+        message(Id, ": annual CV at its cap (", round(cap, 2), "). Expected with one moult ",
+                "window; otherwise annual growth is too small to identify it, and the cap is used")
+      ann$cv_cap <- cap
       annlist[[Id]] <- ann
       pars <- as.numeric(ann$pars)
     }
@@ -253,4 +290,45 @@ GrowthToIMuLT <- function(paroutlist, selected, bins, mode = c("annual", "timest
   }
 
   invisible(list(Params = Params, pertab = pertab_out, annlist = annlist, tag = tag))
+}
+
+
+## Cap for the annual CV (see GrowthToIMuLT @details): the larger of the
+## per-moult CV and the CV of a year's growth among animals that moulted at
+## least once. Windows moult independently with the fitted P(moult); each
+## moult adds Normal(mu_k, (cv * mu_k)^2) at the starting length. Averaged
+## over the IMuLT range, weighted by P(at least one moult). Same growth and
+## P(moult) formulas as STMfromPars.
+annual_cv_cap <- function(season_pars, floors, bins, Pmin = 2, P5 = 0.1, n_pmoult1 = 1,
+                          LowLB = min(bins$lbinL), UpLB = max(bins$lbinL)) {
+  L    <- bins$lbin
+  keep <- bins$lbinL >= LowLB - 1e-8 & bins$lbinL <= UpLB + 1e-8
+  floors <- rep_len(floors, length(season_pars))
+  gfun <- function(p) {
+    x <- L - p[2]; sw <- 1 / (1 + exp(x / P5))
+    exp(p[1]) * (sw / (1 + exp(x / (Pmin + exp(p[3])))) + (1 - sw) / (1 + exp(x / (Pmin + exp(p[4])))))
+  }
+  pfun <- function(p, fl) {
+    pm <- fl + (1 - fl) * plogis(p[6] - exp(p[7]) * L)
+    pm[seq_len(min(n_pmoult1, length(L)))] <- 1
+    pm
+  }
+  K   <- length(season_pars)
+  mu  <- vapply(season_pars, gfun, numeric(length(L)))
+  pm  <- vapply(seq_len(K), function(k) pfun(season_pars[[k]], floors[k]), numeric(length(L)))
+  cvs <- vapply(season_pars, function(p) exp(p[5]), numeric(1))
+  mu  <- matrix(mu, ncol = K); pm <- matrix(pm, ncol = K)
+  sub <- as.matrix(expand.grid(rep(list(0:1), K)))[-1, , drop = FALSE]   # >= 1 moult
+  res <- vapply(which(keep), function(i) {
+    pr <- apply(sub, 1, function(b) prod(ifelse(b == 1, pm[i, ], 1 - pm[i, ])))
+    if (sum(pr) <= 0 || all(mu[i, ] <= 0)) return(c(NA, 0))
+    m  <- as.numeric(sub %*% mu[i, ])
+    v  <- as.numeric(sub %*% (cvs * mu[i, ])^2)
+    pr <- pr / sum(pr)
+    M  <- sum(pr * m); V <- sum(pr * (v + m^2)) - M^2
+    c(sqrt(max(V, 0)) / M, 1 - prod(1 - pm[i, ]))
+  }, numeric(2))
+  ok <- is.finite(res[1, ]) & res[2, ] > 0
+  cv_year <- if (any(ok)) sum(res[1, ok] * res[2, ok]) / sum(res[2, ok]) else NA
+  max(cvs, cv_year, na.rm = TRUE)
 }

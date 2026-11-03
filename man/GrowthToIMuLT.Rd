@@ -17,7 +17,8 @@ GrowthToIMuLT(
   ann_LowLB = NULL,
   ann_UpLB = NULL,
   ann_start = 1,
-  ann_est = setdiff(partypes, "LsigGrow"),
+  ann_est = partypes,
+  ann_cv_cap = TRUE,
   ann_floor = 0,
   ann_wts = NULL,
   ann_plus = FALSE,
@@ -66,8 +67,13 @@ projection's).}
 \item{ann_start}{Timestep at which IMuLT's growth year begins.}
 
 \item{ann_est}{Parameter types the annual projection estimates; the rest
-stay at the sub-annual fit's values. Default fixes the CV, which the
-annual STM cannot identify when growth is small relative to bin width.}
+stay at the sub-annual fit's values. A character vector, or
+\code{function(sex, area, period)} returning one. Default: all.}
+
+\item{ann_cv_cap}{Logical, default TRUE. Caps the annual CV (LsigGrow) in
+the projection at the larger of the per-moult CV and the CV of a year's
+growth among animals that moulted (see Details). Has no effect unless
+LsigGrow is in \code{ann_est}.}
 
 \item{ann_floor}{Moult-probability floor for the annual STM.}
 
@@ -129,6 +135,24 @@ x period, for an annual-timestep IMuLT model. Optionally plots each
 projection against its compounded target
 (\code{\link{PlotAnnualProjection}}).}
 }
+}
+\details{
+\strong{The annual CV.} A year's growth is the sum of however many moults
+fell in it, so its spread differs from one moult's: smaller when animals
+moult several times a year (about 1/sqrt(moults) of it), similar when they
+moult once. The annual projection therefore estimates the CV. But when
+annual growth is smaller than a bin (slow growers), the annual STM cannot
+identify it, and the optimiser runs to a degenerate solution -- Amax near
+0 and CV very large -- that reproduces the stay/next-bin split without
+meaning anything. That failure always pushes the CV up, so the cap blocks
+it without constraining well-identified cases: the cap is the larger of
+the per-moult CV and the CV of a year's growth among animals that moulted
+at least once, computed from the fitted windows (independent moults, one
+increment per moult), averaged over the IMuLT length range weighted by the
+probability of moulting. Where growth is informative the estimate sits
+below the cap; where it is not, it stops at the cap, which is then the
+best available value. Crabs moulting at most once a year: cap = per-moult
+CV, which is what a free fit returns anyway.
 }
 \seealso{
 \code{\link{AnnualFromSeasonPars}}, \code{\link{PlotAnnualProjection}}
