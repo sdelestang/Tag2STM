@@ -125,7 +125,7 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
     geom_point(size = 2, alpha = 0.7) +
     geom_hline(yintercept = 0, linetype = "dashed") +
     scale_colour_viridis_c(option = "viridis", name = "Mid-year",
-                            guide = guide_colourbar(barwidth = unit(5, "cm"), barheight = unit(0.4, "cm"))) +
+                            guide = guide_colourbar(barwidth = unit(3, "cm"), barheight = unit(0.3, "cm"))) +
     labs(x = "Release size", y = "Residual") +
     theme_bw() +
     theme(legend.position = "none", plot.tag = element_text(face = "bold"))
@@ -134,7 +134,7 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
     geom_point(size = 2, alpha = 0.7) +
     geom_hline(yintercept = 0, linetype = "dashed") +
     scale_colour_viridis_c(option = "viridis", name = "Mid-year",
-                            guide = guide_colourbar(barwidth = unit(5, "cm"), barheight = unit(0.4, "cm"))) +
+                            guide = guide_colourbar(barwidth = unit(3, "cm"), barheight = unit(0.3, "cm"))) +
     labs(x = "Liberty (log number timesteps)", y = "Residual") +
     theme_bw() +
     theme(legend.position = "none", plot.tag = element_text(face = "bold"))
@@ -212,9 +212,10 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
       name = "Increment",
       sec.axis = sec_axis(~ (. - ribbon_lo) / ribbon_range, name = "P(moult)")
     ) +
-    labs(x = "Size", title = "Growth/Moult (dashed = P(moult), one line per season)") +
+    labs(x = "Size", title = "Increment per moult; dashed = P(moult) per season") +
     theme_bw() +
-    theme(plot.tag = element_text(face = "bold"), plot.title = element_text(hjust = 0.5))
+    theme(plot.tag = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, size = 8, margin = margin(0, 0, 2, 0)))
 
 
   ## --- Panel e: year effects (TemporalGrowth = TRUE), falling back to growth-spread plot (TemporalGrowth = FALSE) ---
@@ -267,7 +268,7 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
            subtitle = "Flat = calibrated; U = spread too narrow;\nhump = too wide; tilt = biased") +
       theme_bw() +
       theme(plot.tag = element_text(face = "bold"),
-            plot.subtitle = element_text(size = 8))
+            plot.subtitle = element_text(size = 6.5, lineheight = 0.9, margin = margin(0, 0, 2, 0)))
   }
 
   ## --- Panel f: projected growth trajectory, with year-scenario overlay if available ---
@@ -318,12 +319,15 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
     geom_ribbon(data = subset(traj_df, scenario == "Average"),
                 aes(ymin = lo, ymax = hi), fill = "grey70", alpha = 0.8) +
     geom_line(aes(y = med, colour = scenario, linetype = scenario), linewidth = 0.8) +
+    ## No legend when there is only the average line (no year effects):
+    ## guides = "collect" would otherwise show it regardless.
     scale_colour_manual(values = c(Average = "black", `Slowest year` = "#e84b33",
-                                    `Fastest year` = "#3481c8")) +
+                                    `Fastest year` = "#3481c8"),
+                        guide = if (has_scenarios) "legend" else "none") +
     scale_linetype_manual(values = c(Average = "solid", `Slowest year` = "dashed",
-                                       `Fastest year` = "dashed")) +
+                                       `Fastest year` = "dashed"),
+                          guide = if (has_scenarios) "legend" else "none") +
     scale_x_continuous(breaks = age_breaks, labels = age_labels) +
-    scale_y_continuous(limits = c(0, max(lbinL))) +
     labs(x = "Relative Age (y)", y = "Size",
          colour = "Year scenario", linetype = "Year scenario") +
     theme_bw() +
@@ -364,34 +368,43 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
       geom_tile(aes(fill = mres), width = sp_cell, height = sp_cell, colour = "grey85") +
       geom_tile(data = subset(cells, sig), width = sp_cell, height = sp_cell,
                 fill = NA, colour = "black", linewidth = 0.6) +
-      geom_text(aes(label = n), size = 2.3, colour = "grey20") +
+      geom_text(aes(label = n), size = 1.8, colour = "grey20") +
       scale_fill_gradient2(low = "#e84b33", mid = "white", high = "#3481c8",
                            midpoint = 0, limits = c(-lim, lim),
-                           name = "Mean residual (mm)") +
+                           name = "Mean residual (mm)",
+                           guide = guide_colourbar(barwidth = unit(3, "cm"), barheight = unit(0.3, "cm"))) +
       ## No coord_equal(): a fixed aspect ratio makes patchwork shrink the
       ## whole right-hand column to fit this panel.
       labs(x = "Longitude", y = "Latitude",
            subtitle = sub_txt) +
       theme_bw() +
       theme(plot.tag = element_text(face = "bold"),
-            plot.subtitle = element_text(size = 8))
+            plot.subtitle = element_text(size = 6.5, lineheight = 0.9, margin = margin(0, 0, 2, 0)))
 
+    ## Trajectory (g) takes half the bottom row; the collected legends sit in
+    ## the other half. Row 2 is taller so the spatial map is not squashed.
     layout <- "
 AB
 CD
 EF
-GG
+GH
 "
-    final <- pa + pb + pc + pg + pd + pe + pf +
-      plot_layout(design = layout, guides = "collect", widths = c(1, 1)) +
+    final <- pa + pb + pc + pg + pd + pe + pf + guide_area() +
+      plot_layout(design = layout, guides = "collect", widths = c(1, 1),
+                  heights = c(1, 1.4, 1, 1)) +
       plot_annotation(tag_levels = "a", caption = run_label,
                       theme = theme(plot.margin = margin(2, 2, 2, 2),
                                     plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))) &
-      theme(legend.position    = "bottom",
-            legend.box         = "horizontal",
+      theme(legend.position    = "right",
+            legend.box         = "vertical",
             legend.direction   = "horizontal",
+            legend.title       = element_text(size = 8),
+            legend.text        = element_text(size = 7),
+            legend.key.size    = unit(0.35, "cm"),
             legend.margin      = margin(0, 0, 0, 0),
             legend.box.margin  = margin(0, 0, 0, 0),
+            axis.title         = element_text(size = 9),
+            axis.text          = element_text(size = 7),
             plot.margin        = margin(2, 4, 2, 4))
 
   } else {
