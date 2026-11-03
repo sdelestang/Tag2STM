@@ -4,7 +4,16 @@
 \alias{STMfromPars}
 \title{Build One Size Transition Matrix from growmodPar Parameters}
 \usage{
-STMfromPars(pars, bins, floor = 0, n_pmoult1 = 1, P5 = 0.1)
+STMfromPars(
+  pars,
+  bins,
+  floor = 0,
+  n_pmoult1 = 1,
+  P5 = 0.1,
+  Pmin = NULL,
+  max_moults = 1,
+  moult_tau = 0.01
+)
 }
 \arguments{
 \item{pars}{Numeric length 7, in the order growmodPar stores them:
@@ -20,6 +29,17 @@ log(-Pmoult slope). Names are ignored; order is what matters.}
 (\code{datain$n_pmoult1}, default 1).}
 
 \item{P5}{Fixed swap width (\code{datain$Growth_P5_fixed}, default 0.1).}
+
+\item{Pmin}{Floor on the logistic scales P1 and P3, as growmodPar's
+\code{datain$Growth_Pmin}: P = Pmin + exp(par). Default NULL = one
+width of \code{bins}, matching growmodPar's default when the bins are
+the fitted bins. Pass \code{rep$Growth_Pmin} when they are not, and
+\code{0} for parameters from fits made before the floor existed.}
+
+\item{max_moults, moult_tau}{As \code{datain$max_moults} and
+\code{datain$moult_tau} in the fit. With \code{max_moults > 1},
+parameters 6-7 describe the expected number of moults per window, not a
+probability. Default 1 (the single-moult hurdle).}
 }
 \value{
 nlbin x nlbin column-stochastic matrix (columns = from-length).

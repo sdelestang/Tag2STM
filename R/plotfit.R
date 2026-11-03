@@ -43,12 +43,28 @@
 #'   \item If the model was fit with \code{TemporalGrowth = TRUE} (i.e.
 #'     \code{mod$rep()$S} exists): year effects (\code{S}) shown as percent
 #'     deviation in mean growth from the average year, one bar per modelled
-#'     year. Otherwise, falls back to the original growth-spread-vs-increment-size panel.
+#'     year. Otherwise, a calibration (PIT) histogram: for each animal the
+#'     fitted probability of a recapture length at or below the observed one.
+#'     Flat (within the grey 95\% band) means the predicted distributions have
+#'     the right location and spread; a U shape means the predicted spread is
+#'     too narrow, a hump too wide, and a tilt a bias.
 #'   \item Projected growth trajectory with 95% CI ribbon for the average
 #'     year. If \code{mod$rep()$lenout_scenarios} exists, the slowest- and
 #'     fastest-fitted-year median trajectories are overlaid as dashed lines.
-#'   \item (if spatial columns present) Residuals by release location
+#'   \item (if spatial columns present) Mean residual by grid cell: each
+#'     \code{sp_cell} x \code{sp_cell} cell is filled by its mean residual
+#'     (blue = grew more than predicted, red = less), labelled with its
+#'     record count, and outlined in black where the mean differs from zero
+#'     by more than 2 SE. Cells with fewer than \code{sp_min_n} records are
+#'     not drawn.
 #' }
+#'
+#' @param area_col Optional name of a column in \code{datIn} holding the
+#'   growth area. Adds each area's overall mean residual (+/- SE) to the
+#'   spatial panel's subtitle.
+#' @param sp_cell Grid cell size for the spatial panels, in the units of
+#'   \code{dLon}/\code{dLat}. Default 1.
+#' @param sp_min_n Minimum records for a cell or band to be shown. Default 3.
 #'
 #' @return Invisibly returns the model report object from `mod$rep()`.
 #'
@@ -62,7 +78,8 @@
 #' @importFrom dplyr mutate bind_rows
 #' @importFrom magrittr %>% %<>%
 #' @export
-plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL) {
+plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL,
+                    area_col = NULL, sp_cell = 1, sp_min_n = 3) {
   library(ggplot2)
   library(patchwork)
   library(viridis)
@@ -92,7 +109,9 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL) {
     Rlcl   = datIn$rlcl,
     ntstep = datIn$ntstep,
     lat    = datIn$dLat,
-    lon    = datIn$dLon
+    lon    = datIn$dLon,
+    area   = if (!is.null(area_col) && area_col %in% names(datIn))
+               as.character(datIn[[area_col]]) else "all"
   ) %>% mutate(
     res      = obslen - estlen,
     midyr    = (relyr + recyr) / 2,
@@ -218,13 +237,37 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL) {
       theme(plot.tag = element_text(face = "bold"),
             axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
   } else {
-    sigdf <- data.frame(growth = seq(0, 5, 0.1), sigma = out$sigGrowvec)
-    pe <- ggplot(sigdf, aes(x = growth, y = sigma)) +
-      geom_point(size = 1.5) +
-      geom_line() +
-      labs(x = "Growth", y = "Growth spread") +
+    ## Calibration (PIT) histogram. For each animal, the fitted probability
+    ## that its recapture length is at or below the one observed: the
+    ## predicted true-length distribution (EstRecLen) convolved with
+    ## recapture measurement error. If the predicted distributions are right
+    ## -- location AND spread, including the moult/no-moult mixture -- these
+    ## values are uniform on (0, 1). This tests what the old growth-spread
+    ## panel could not: that panel only redrew sd = CV x increment, a straight
+    ## line through the origin whatever the fit.
+    pl_now   <- if (!is.null(mout)) mod$env$parList(mout$par) else mod$env$parList()
+    sigE     <- exp(pl_now$LsigError)
+    erl      <- out$EstRecLen
+    pit <- vapply(seq_len(nrow(erl)), function(i)
+      sum(erl[i, ] * pnorm(datIn$rccl[i], lbin, sigE)) / sum(erl[i, ]), numeric(1))
+    nb   <- 10
+    n    <- length(pit)
+    cnt  <- as.numeric(table(cut(pit, seq(0, 1, length.out = nb + 1), include.lowest = TRUE)))
+    band <- qbinom(c(0.025, 0.975), n, 1 / nb) / (n / nb)
+    pitdf <- data.frame(mid = (seq_len(nb) - 0.5) / nb, rel = cnt / (n / nb))
+
+    pe <- ggplot(pitdf, aes(x = mid, y = rel)) +
+      annotate("rect", xmin = 0, xmax = 1, ymin = band[1], ymax = band[2],
+               fill = "grey85") +
+      geom_col(width = 1 / nb, fill = "#3481c8", colour = "white", alpha = 0.8) +
+      geom_hline(yintercept = 1, linetype = "dashed") +
+      scale_x_continuous(breaks = seq(0, 1, 0.25), expand = c(0, 0)) +
+      labs(x = "Predicted P(length <= observed)",
+           y = "Frequency / expected",
+           subtitle = "Flat = calibrated; U = spread too narrow;\nhump = too wide; tilt = biased") +
       theme_bw() +
-      theme(plot.tag = element_text(face = "bold"))
+      theme(plot.tag = element_text(face = "bold"),
+            plot.subtitle = element_text(size = 8))
   }
 
   ## --- Panel f: projected growth trajectory, with year-scenario overlay if available ---
@@ -290,36 +333,61 @@ plotfit <- function(datIn = tdat, mout = NULL, run_label = NULL) {
   has_spatial <- any(!is.na(obs$lat) & !is.na(obs$lon))
 
   if (has_spatial) {
-    obs_sp <- obs %>%
-      filter(!is.na(lat) & !is.na(lon)) %>%
-      mutate(
-        direction = ifelse(res >= 0, "Positive", "Negative"),
-        dot_size  = sqrt(abs(res))
-      )
+    obs_sp <- obs %>% filter(!is.na(lat) & !is.na(lon))
 
-    pg <- ggplot(obs_sp, aes(x = lon, y = lat, colour = direction, size = dot_size)) +
-      geom_point(alpha = 0.4) +
-      scale_colour_manual(values = c(Positive = "#3481c8", Negative = "#e84b33"),
-                          name = "Residual") +
-      scale_size_continuous(range = c(0.5, 3)) +
-      guides(size = "none") +                          # suppress size legend
-      labs(x = "Longitude", y = "Latitude") +
+    ## --- Panel: mean residual by grid cell ----------------------------------
+    ## Individual points hide imbalance: positive and negative residuals of
+    ## similar size overplot each other. Averaging within cells shows where
+    ## the model is systematically high or low, and the 2-SE outline shows
+    ## which of those departures are more than noise.
+    cells <- obs_sp %>%
+      mutate(cx = (floor(lon / sp_cell) + 0.5) * sp_cell,
+             cy = (floor(lat / sp_cell) + 0.5) * sp_cell) %>%
+      group_by(cx, cy) %>%
+      summarise(n = n(), mres = mean(res), se = sd(res) / sqrt(n()), .groups = "drop") %>%
+      filter(n >= sp_min_n) %>%
+      mutate(sig = abs(mres) > 2 * se)
+    lim <- max(abs(cells$mres), na.rm = TRUE)
+
+    ## With growth areas supplied, add each area's overall mean residual
+    ## (+/- SE) to the subtitle: one number per area that should sit near 0.
+    sub_txt <- "Outlined: |mean| > 2 SE; number = records"
+    if (length(unique(obs_sp$area)) > 1) {
+      am <- obs_sp %>% group_by(area) %>%
+        summarise(m = mean(res), se = sd(res) / sqrt(n()), .groups = "drop")
+      sub_txt <- paste0(sub_txt, "\n",
+                        paste(sprintf("%s: %+.2f (SE %.2f)", am$area, am$m, am$se),
+                              collapse = "\n"))
+    }
+
+    pg <- ggplot(cells, aes(cx, cy)) +
+      geom_tile(aes(fill = mres), width = sp_cell, height = sp_cell, colour = "grey85") +
+      geom_tile(data = subset(cells, sig), width = sp_cell, height = sp_cell,
+                fill = NA, colour = "black", linewidth = 0.6) +
+      geom_text(aes(label = n), size = 2.3, colour = "grey20") +
+      scale_fill_gradient2(low = "#e84b33", mid = "white", high = "#3481c8",
+                           midpoint = 0, limits = c(-lim, lim),
+                           name = "Mean residual (mm)") +
+      coord_equal() +
+      labs(x = "Longitude", y = "Latitude",
+           subtitle = sub_txt) +
       theme_bw() +
-      theme(plot.tag = element_text(face = "bold"))
+      theme(plot.tag = element_text(face = "bold"),
+            plot.subtitle = element_text(size = 8))
 
     layout <- "
 AB
 CD
 EF
-GH
+GG
 "
-    final <- pa + pb + pc + pg + pd + pe + pf  + guide_area() +
+    final <- pa + pb + pc + pg + pd + pe + pf +
       plot_layout(design = layout, guides = "collect") +
       plot_annotation(tag_levels = "a", caption = run_label,
                       theme = theme(plot.margin = margin(2, 2, 2, 2),
                                     plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))) &
-      theme(legend.position    = "right",
-            legend.box         = "vertical",
+      theme(legend.position    = "bottom",
+            legend.box         = "horizontal",
             legend.direction   = "horizontal",
             legend.margin      = margin(0, 0, 0, 0),
             legend.box.margin  = margin(0, 0, 0, 0),

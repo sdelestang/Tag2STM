@@ -17,7 +17,9 @@ Makedata(
   LsigError = NULL,
   mpy = 0,
   n_pmoult1 = 1,
-  Pmoult_prior_mean = c(qlogis(0.95), log(0.001)),
+  max_moults = 1,
+  moult_tau = 0.01,
+  Pmoult_prior_mean = NULL,
   Pmoult_prior_sd = c(3, 3),
   ident_wt = 1,
   use_individual_error = FALSE,
@@ -80,9 +82,21 @@ Default 0 (no floor). See \code{\link{growmod}}.}
 \item{n_pmoult1}{Integer, number of smallest length bins with Pmoult
 hard-fixed at exactly 1. Default 1.}
 
+\item{max_moults}{Whole number >= 1, default 1. The most moults one
+\code{goodts} window can hold. With 1, Pmoult is a probability (the
+original hurdle). With 2 or more, it is the expected number of moults
+in the window, so a window can carry two moults for small animals and
+none for large ones, and one increment-per-moult curve can serve all
+windows (use \code{MakemapPar(Growth_shared = TRUE)}). See
+\code{\link{growmodPar}}.}
+
+\item{moult_tau}{Smoothing width of the moult-count distribution when
+\code{max_moults > 1}. Default 0.01.}
+
 \item{Pmoult_prior_mean}{Length-2 numeric, the centre of a weak normal
-prior on the Pmoult logistic (intercept, slope). Default
-\code{c(qlogis(0.95), 0)} -- a flat curve resting near 1. This exists
+prior on the Pmoult logistic (intercept, slope). Default NULL gives
+\code{c(qlogis(0.95 / max_moults), log(0.001))} -- a flat curve resting
+at 0.95 expected moults per window (i.e. near 1 when max_moults = 1). This exists
 because Pmoult = 1 lies at the edge of the parameter space in logit
 terms, so a species that moults every opportunity leaves the logistic
 unidentified and the optimiser free to wander.}

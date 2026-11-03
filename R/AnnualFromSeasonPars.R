@@ -30,7 +30,10 @@
 #' @param wts Weights over IMuLT from-bins; NULL = uniform.
 #' @param plus_group TRUE accumulates mass above UpLB into the top IMuLT bin;
 #'   FALSE drops and renormalises (ClipSTM behaviour).
-#' @param ... Passed to stm_fun (e.g. n_pmoult1, P5).
+#' @param max_moults,moult_tau The fit's \code{datain$max_moults} and
+#'   \code{datain$moult_tau}; used for the seasonal STMs only. The annual
+#'   STM is always single-moult.
+#' @param ... Passed to stm_fun (e.g. n_pmoult1, P5, Pmin).
 #'
 #' @return list(pars, objective, convergence, message, A, Ahat, moments)
 #' @export
@@ -38,7 +41,8 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, floors = 0,
                                  stm_fun = STMfromPars, partypes,
                                  lower, upper, est = partypes, bins,
                                  LowLB, UpLB, start = min(tsteps),
-                                 ann_floor = 0, wts = NULL, plus_group = FALSE, ...) {
+                                 ann_floor = 0, wts = NULL, plus_group = FALSE,
+                                 max_moults = 1, moult_tau = 0.01, ...) {
   if (length(season_pars) != length(tsteps)) stop("One parameter vector per timestep required")
   floors <- rep_len(floors, length(tsteps))
 
@@ -70,7 +74,14 @@ AnnualFromSeasonPars <- function(season_pars, tsteps, floors = 0,
   if (is.na(k)) k <- 1
   ord <- c(k:length(tsteps), seq_len(k - 1))
   A <- diag(length(bins$lbinL))
-  for (s in ord) A <- stm_fun(season_pars[[s]], bins, floor = floors[s], ...) %*% A
+  ## max_moults applies to the SEASONAL fits only -- the annual STM IMuLT
+  ## builds is a single-moult hurdle. Passed only when > 1 so a custom
+  ## stm_fun without that argument still works for ordinary fits.
+  season_stm <- function(p, fl) {
+    if (max_moults > 1) stm_fun(p, bins, floor = fl, max_moults = max_moults, moult_tau = moult_tau, ...)
+    else stm_fun(p, bins, floor = fl, ...)
+  }
+  for (s in ord) A <- season_stm(season_pars[[s]], floors[s]) %*% A
   A <- clip(A)
 
   ## ---- starting values ----

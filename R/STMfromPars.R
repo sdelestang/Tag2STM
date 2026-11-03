@@ -28,6 +28,10 @@
 #'   width of \code{bins}, matching growmodPar's default when the bins are
 #'   the fitted bins. Pass \code{rep$Growth_Pmin} when they are not, and
 #'   \code{0} for parameters from fits made before the floor existed.
+#' @param max_moults,moult_tau As \code{datain$max_moults} and
+#'   \code{datain$moult_tau} in the fit. With \code{max_moults > 1},
+#'   parameters 6-7 describe the expected number of moults per window, not a
+#'   probability. Default 1 (the single-moult hurdle).
 #' @param n_pmoult1 Number of smallest bins with Pmoult fixed at exactly 1
 #'   (\code{datain$n_pmoult1}, default 1).
 #' @param P5 Fixed swap width (\code{datain$Growth_P5_fixed}, default 0.1).
@@ -35,7 +39,7 @@
 #' @return nlbin x nlbin column-stochastic matrix (columns = from-length).
 #' @export
 STMfromPars <- function(pars, bins, floor = 0, n_pmoult1 = 1, P5 = 0.1,
-                        Pmin = NULL) {
+                        Pmin = NULL, max_moults = 1, moult_tau = 0.01) {
   pars  <- as.numeric(pars)
   lbin  <- bins$lbin; lbinL <- bins$lbinL; lbinU <- bins$lbinU
   n     <- length(lbin)
@@ -54,21 +58,49 @@ STMfromPars <- function(pars, bins, floor = 0, n_pmoult1 = 1, P5 = 0.1,
   g     <- Amax * (1 / (1 + exp(xdev / P1)) * swap1 + 1 / (1 + exp(xdev / P3)) * (1 - swap1))
   sdg   <- exp(pars[5]) * g
 
-  ## moult probability: floor + logistic, smallest bins fixed at 1
-  pm <- floor + (1 - floor) * plogis(pars[6] - exp(pars[7]) * lbin)
-  pm[seq_len(min(n_pmoult1, n))] <- 1
+  ## moult probability (max_moults = 1) or expected moults per window
+  ## (max_moults > 1): floor + logistic. Smallest bins fixed at 1 only in
+  ## the single-moult case, as growmodPar.
+  pm <- floor + (max_moults - floor) * plogis(pars[6] - exp(pars[7]) * lbin)
+  if (max_moults == 1) pm[seq_len(min(n_pmoult1, n))] <- 1
 
-  ## columns: truncated at the from-bin, plus group at the top bin
-  A <- matrix(0, n, n)
+  ## one-moult matrix: columns truncated at the from-bin, plus group at the
+  ## top bin
+  G <- matrix(0, n, n)
   for (fm in seq_len(n)) {
     k  <- fm:n
     mu <- lbin[fm] + g[fm]
     lo <- pnorm(lbinL[k], mu, sdg[fm])
     p  <- pnorm(lbinU[k], mu, sdg[fm]) - lo
     p[length(k)] <- 1 - lo[length(k)]
-    p  <- p / sum(p)
-    A[k, fm]  <- pm[fm] * p
-    A[fm, fm] <- A[fm, fm] + (1 - pm[fm])
+    G[k, fm] <- p / sum(p)
+  }
+  moult_mix(G, pm, max_moults, moult_tau)
+}
+
+## Numeric copy of growmodPar's moult_wts(): P(N = 0..max_moults moults in a
+## window) given the expected number lam. Keep the two in sync.
+moult_count_wts <- function(lam, max_moults = 1, moult_tau = 0.01) {
+  if (max_moults == 1) return(c(1 - lam, lam))
+  ramp <- function(x) moult_tau * (log1p(exp(x / moult_tau)) -
+                                   log1p(exp((x - 1) / moult_tau)))
+  ge <- c(1, ramp(lam - seq_len(max_moults) + 1), 0)   # P(N >= 0..max_moults+1)
+  ge[-length(ge)] - ge[-1]
+}
+
+## Window STM from the one-moult matrix G and per-column lambda: column fm is
+## sum_k P(N = k) * (G^k)[, fm]. Numeric mirror of growmodPar's win_stm().
+moult_mix <- function(G, lam, max_moults = 1, moult_tau = 0.01) {
+  n  <- ncol(G)
+  Gk <- vector("list", max_moults)
+  Gk[[1]] <- G
+  if (max_moults > 1) for (k in 2:max_moults) Gk[[k]] <- G %*% Gk[[k - 1]]
+  A <- matrix(0, n, n)
+  for (fm in seq_len(n)) {
+    w <- moult_count_wts(lam[fm], max_moults, moult_tau)
+    col <- numeric(n); col[fm] <- w[1]
+    for (k in seq_len(max_moults)) col <- col + w[k + 1] * Gk[[k]][, fm]
+    A[, fm] <- col
   }
   A
 }

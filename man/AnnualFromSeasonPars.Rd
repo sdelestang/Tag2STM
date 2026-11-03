@@ -20,6 +20,8 @@ AnnualFromSeasonPars(
   ann_floor = 0,
   wts = NULL,
   plus_group = FALSE,
+  max_moults = 1,
+  moult_tau = 0.01,
   ...
 )
 }
@@ -56,7 +58,11 @@ Their wider span is used for compounding.}
 \item{plus_group}{TRUE accumulates mass above UpLB into the top IMuLT bin;
 FALSE drops and renormalises (ClipSTM behaviour).}
 
-\item{...}{Passed to stm_fun (e.g. n_pmoult1, P5).}
+\item{max_moults, moult_tau}{The fit's \code{datain$max_moults} and
+\code{datain$moult_tau}; used for the seasonal STMs only. The annual
+STM is always single-moult.}
+
+\item{...}{Passed to stm_fun (e.g. n_pmoult1, P5, Pmin).}
 }
 \value{
 list(pars, objective, convergence, message, A, Ahat, moments)

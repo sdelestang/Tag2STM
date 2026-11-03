@@ -4,7 +4,14 @@
 \alias{plotfit}
 \title{Plot Tag-Recapture Model Diagnostics}
 \usage{
-plotfit(datIn = tdat, mout = NULL, run_label = NULL)
+plotfit(
+  datIn = tdat,
+  mout = NULL,
+  run_label = NULL,
+  area_col = NULL,
+  sp_cell = 1,
+  sp_min_n = 3
+)
 }
 \arguments{
 \item{datIn}{Data frame of tag-recapture observations. Default \code{tdat}.}
@@ -18,6 +25,15 @@ parameter state -- usually the optimum right after fitting, but this can
 silently go stale if anything else (e.g. \code{sdreport()},
 \code{tmbprofile()}) has called \code{mod$fn()}/\code{mod$gr()} since.
 Passing \code{mout} explicitly is recommended.}
+
+\item{area_col}{Optional name of a column in \code{datIn} holding the
+growth area. Adds each area's overall mean residual (+/- SE) to the
+spatial panel's subtitle.}
+
+\item{sp_cell}{Grid cell size for the spatial panels, in the units of
+\code{dLon}/\code{dLat}. Default 1.}
+
+\item{sp_min_n}{Minimum records for a cell or band to be shown. Default 3.}
 }
 \value{
 Invisibly returns the model report object from \code{mod$rep()}.
@@ -55,11 +71,20 @@ each bin's mean increment)
 \item If the model was fit with \code{TemporalGrowth = TRUE} (i.e.
 \code{mod$rep()$S} exists): year effects (\code{S}) shown as percent
 deviation in mean growth from the average year, one bar per modelled
-year. Otherwise, falls back to the original growth-spread-vs-increment-size panel.
+year. Otherwise, a calibration (PIT) histogram: for each animal the
+fitted probability of a recapture length at or below the observed one.
+Flat (within the grey 95\\% band) means the predicted distributions have
+the right location and spread; a U shape means the predicted spread is
+too narrow, a hump too wide, and a tilt a bias.
 \item Projected growth trajectory with 95\% CI ribbon for the average
 year. If \code{mod$rep()$lenout_scenarios} exists, the slowest- and
 fastest-fitted-year median trajectories are overlaid as dashed lines.
-\item (if spatial columns present) Residuals by release location
+\item (if spatial columns present) Mean residual by grid cell: each
+\code{sp_cell} x \code{sp_cell} cell is filled by its mean residual
+(blue = grew more than predicted, red = less), labelled with its
+record count, and outlined in black where the mean differs from zero
+by more than 2 SE. Cells with fewer than \code{sp_min_n} records are
+not drawn.
 }
 }
 \examples{

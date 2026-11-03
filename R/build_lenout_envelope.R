@@ -76,12 +76,19 @@ build_lenout_envelope <- function(rep_out, datain) {
   }
   if (is.null(mpy_floor)) mpy_floor <- rep(0, ntsteps)   # pre-mpy fit
 
-  ## Exact mirror of growmod's Pmoult_fn -- see @section above.
+  ## Multiple moults per window (growmodPar's datain$max_moults); 1 for
+  ## fits predating it. A fit with no hurdle reports a saturated
+  ## Pmoult_par and is single-moult regardless.
+  Kmax <- if (is.null(rep_out$max_moults)) 1 else rep_out$max_moults
+  if (isFALSE(rep_out$moult_hurdle)) Kmax <- 1
+  moult_tau <- if (is.null(datain$moult_tau)) 0.01 else datain$moult_tau
+
+  ## Exact mirror of growmodPar's Pmoult_fn -- see @section above.
   Pmoult_fn <- function(ns, fm) {
-    if (fm <= n_pmoult1) return(1)
+    if (Kmax == 1 && fm <= n_pmoult1) return(1)
     fl <- mpy_floor[ns]
     slope <- -exp(Pmoult_par[ns, 2])
-    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
+    fl + (Kmax - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
   }
 
   scenario_S <- c(0, min(S), max(S))
@@ -96,22 +103,21 @@ build_lenout_envelope <- function(rep_out, datain) {
         cnt <- cnt + 1
         if (cnt > 1) lenout_scenarios[cnt, , sc] <- lenout_scenarios[cnt - 1, , sc]
         if (ts %in% goodts) {
-          scenario_stm <- matrix(0, nlbin, nlbin)
+          G <- matrix(0, nlbin, nlbin)                  # one-moult matrix
           for (fm in 1:nlbin) {
             mn_growth <- growthmat[ts, fm] * exp(Ssc)   # matches growmod's exp(S)
             sd_growth <- exp(LsigGrow) * mn_growth      # proportional CV spread
             sd_growth <- max(sd_growth, 1e-4)           # plain max() -- not AD here
-            Pmoult    <- Pmoult_fn(ts, fm)
             probs <- rep(0, nlbin)
             for (k in fm:(nlbin - 1)) {
               probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
                 pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
             }
             probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
-            probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
-            scenario_stm[fm:nlbin, fm] <- Pmoult * probs_norm
-            scenario_stm[fm, fm] <- scenario_stm[fm, fm] + (1 - Pmoult)
+            G[fm:nlbin, fm] <- probs[fm:nlbin] / sum(probs[fm:nlbin])
           }
+          lam <- vapply(1:nlbin, function(fm) Pmoult_fn(ts, fm), numeric(1))
+          scenario_stm <- moult_mix(G, lam, Kmax, moult_tau)
           lenout_scenarios[cnt, , sc] <- scenario_stm %*% lenout_scenarios[cnt, , sc]
         }
       }

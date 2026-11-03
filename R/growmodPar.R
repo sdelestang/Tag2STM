@@ -32,6 +32,20 @@
 #' at the same size. That bimodality is what the comparison tests.
 #' Compare fits on the reported \code{NLL_data}, not the objective.
 #'
+#' \strong{Multiple moults per window (\code{datain$max_moults}).} With the
+#' default 1, \code{Pmoult} is a probability and a window holds at most one
+#' moult. With 2 or more, \code{Pmoult_par} describes the EXPECTED NUMBER
+#' of moults in the window, lambda, from 0 to \code{max_moults}, and the
+#' window STM mixes 0, 1, ..., \code{max_moults} moults, each later moult
+#' starting from the length the previous one reached. The intended set-up
+#' is one increment-per-moult curve for every window
+#' (\code{MakemapPar(Growth_shared = TRUE)}) with a separate lambda curve
+#' per window (\code{Pmoult_shared = FALSE}): small animals can moult twice
+#' in one window and large ones not at all, so seasonal differences sit in
+#' moult frequency rather than in the increment. Suppression, when on, is
+#' the probability of skipping a window entirely. \code{n_pmoult1} is not
+#' applied in this mode. \code{Pmoult_vec} then reports lambda.
+#'
 #' @param pin List. Parameter list from \code{Makepin}.
 #' @param Like Integer, 1 (default, asymmetric KL) or 2 (symmetric KL).
 #'   Structural switch, plain data at trace time.
@@ -320,6 +334,11 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## prior needed: datain$Growth_P5_fixed default 0.1 (a steep, near
   ## step-function swap), overridable per analysis.
   if (is.null(datain$Growth_P5_fixed))      datain$Growth_P5_fixed     <- 0.1
+  ## Multiple moults per window (see Pmoult_fn). max_moults = 1 is the
+  ## original single-moult hurdle, reproduced exactly. moult_tau is the
+  ## smoothing width of the moult-count distribution when max_moults > 1.
+  if (is.null(datain$max_moults))           datain$max_moults <- 1
+  if (is.null(datain$moult_tau))            datain$moult_tau  <- 0.01
 
   ## Moult hurdle on/off is decided by the PIN, not by datain: a pin built
   ## with MakepinPar(moult_hurdle = FALSE) has no Pmoult_par. names(pin) is
@@ -333,6 +352,16 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   getAll(datain, pin, warn = FALSE)
   npar <- length(names(pin))
   nobs <- length(Rccl)
+
+  if (max_moults < 1 || max_moults != round(max_moults)) {
+    stop("datain$max_moults must be a whole number >= 1 (got ", max_moults, ").")
+  }
+  if (max_moults / moult_tau > 700) {
+    stop("datain$max_moults / datain$moult_tau exceeds 700 -- exp() overflows. ",
+         "Increase moult_tau.")
+  }
+  ## No hurdle means exactly one moult per window, whatever max_moults says.
+  Kmax <- if (moult_hurdle) max_moults else 1
 
   ## mpy is plain data; the feasibility bound is just mpy <= 1 now (a
   ## single season could in principle carry the whole floor -- see below),
@@ -428,12 +457,43 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## With moult_hurdle = FALSE it is identically 1 (5-parameter model).
   ## Suppression, when on, still scales it (r * 1), so tagged animals can
   ## still miss a moult early in liberty -- size-independently.
+  ##
+  ## MULTIPLE MOULTS PER WINDOW (datain$max_moults > 1). Pmoult_fn then
+  ## returns the EXPECTED NUMBER OF MOULTS in the window, lambda, in
+  ## [floor, max_moults], rather than a probability:
+  ##   lambda(L) = floor + (max_moults - floor) * plogis(a - exp(b) * L)
+  ## This lets a short window hold two moults for small animals and none
+  ## for large ones, so ONE increment-per-moult curve can serve every
+  ## window (Growth_shared = TRUE) and all seasonal differences sit in
+  ## lambda. The n_pmoult1 hard-fix is not applied in this mode (the
+  ## smallest bins may need more than one moult). max_moults = 1 gives
+  ## lambda = Pmoult and reproduces the single-moult model exactly.
   Pmoult_fn <- function(ns, fm) {
     if (!moult_hurdle) return(1)
-    if (fm <= n_pmoult1) return(1)
+    if (Kmax == 1 && fm <= n_pmoult1) return(1)
     fl <- mpy_floor[ns]
-    slope <- -exp(Pmoult_par[ns, 2])   # forces slope < 0: Pmoult can only decrease with size
-    fl + (1 - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
+    slope <- -exp(Pmoult_par[ns, 2])   # forces slope < 0: moulting can only decrease with size
+    fl + (Kmax - fl) * plogis(Pmoult_par[ns, 1] + slope * lbin[fm])
+  }
+
+  ## Distribution of the number of moults N in a window, given lambda.
+  ## Returns P(N = 0..Kmax). Kmax = 1: the Bernoulli c(1 - lambda, lambda).
+  ## Kmax > 1: the least-dispersed distribution with mean lambda (N is
+  ## floor(lambda) or floor(lambda) + 1), smoothed so it is differentiable
+  ## at whole numbers:  P(N >= k) = ramp(lambda - k + 1), where ramp() is a
+  ## softplus-smoothed clamp to [0, 1] of width moult_tau. Mean is lambda
+  ## to within ~moult_tau * log(2) at whole numbers.
+  ## STMfromPars() carries an exact numeric copy -- keep the two in sync.
+  moult_wts <- function(lam) {
+    if (Kmax == 1) return(c(1 - lam, lam))
+    ramp <- function(x) moult_tau * (log(1 + exp(x / moult_tau)) -
+                                     log(1 + exp((x - 1) / moult_tau)))
+    ge <- c(1, rep(0, Kmax))                      # P(N >= 0..Kmax)
+    for (k in 1:Kmax) ge[k + 1] <- ramp(lam - k + 1)
+    w <- rep(0, Kmax + 1)
+    for (k in 0:(Kmax - 1)) w[k + 1] <- ge[k + 1] - ge[k + 2]
+    w[Kmax + 1] <- ge[Kmax + 1]
+    w
   }
 
   ## --- Tagging-induced moult suppression ---------------------------------
@@ -540,49 +600,59 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## cannot drift apart. (Divergence between two hand-maintained copies of
   ## this construction is exactly what produced a flat growth trajectory in
   ## build_lenout_envelope() previously.)
-  make_stm <- function(pm_fn) {
+  ## single_stm: the ONE-MOULT transition matrix for window ns with growth
+  ## scaled by gscale (exp(S[yr]) under TemporalGrowth, else 1). Column fm
+  ## is the truncated-normal increment from bin fm, renormalised.
+  single_stm <- function(ns, gscale) {
+    G <- matrix(0, nlbin, nlbin)
+    for (fm in 1:nlbin) {
+      mn_growth <- growthmat[ns, fm] * gscale
+      sd_growth <- exp(LsigGrow) * mn_growth
+      probs <- rep(0, nlbin)
+      for (k in fm:(nlbin - 1)) {
+        probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
+          pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
+      }
+      probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
+      G[fm:nlbin, fm] <- probs[fm:nlbin] / sum(probs[fm:nlbin])
+    }
+    G
+  }
+
+  ## win_stm: the window's STM. Column fm is a mixture over the number of
+  ## moults, sum_k P(N = k | lambda(fm)) * (G^k)[, fm], so a second moult
+  ## starts from the length reached after the first (G^2), with the same
+  ## increment-per-moult curve. With Kmax = 1 this is exactly the original
+  ## (1 - Pmoult) * I + Pmoult * G.
+  win_stm <- function(ns, gscale) {
+    G  <- single_stm(ns, gscale)
+    Gk <- vector("list", Kmax)
+    Gk[[1]] <- G
+    if (Kmax > 1) for (k in 2:Kmax) Gk[[k]] <- G %*% Gk[[k - 1]]
+    A <- matrix(0, nlbin, nlbin)
+    for (fm in 1:nlbin) {
+      w   <- moult_wts(Pmoult_fn(ns, fm))
+      col <- rep(0, nlbin)
+      col[fm] <- w[1]
+      for (k in 1:Kmax) col <- col + w[k + 1] * Gk[[k]][, fm]
+      A[, fm] <- col
+    }
+    A
+  }
+
+  ## One builder for every STM (fitting, reporting, the trajectory below),
+  ## so the copies cannot drift apart -- divergence between hand-maintained
+  ## copies is what once produced a flat trajectory in
+  ## build_lenout_envelope().
+  make_stm <- function() {
     if (TemporalGrowth) {
       A <- array(0, c(nlbin, nlbin, ntsteps, nyears))
       for (yr in 1:nyears) {
-        for (ns in goodts) {
-          for (fm in 1:nlbin) {
-            mn_growth <- growthmat[ns, fm] * exp(S[yr])
-            sd_growth <- exp(LsigGrow) * mn_growth
-            Pmoult    <- pm_fn(ns, fm)
-
-            probs <- rep(0, nlbin)
-            for (k in fm:(nlbin - 1)) {
-              probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
-                pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
-            }
-            probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
-            probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
-
-            A[fm:nlbin, fm, ns, yr] <- Pmoult * probs_norm
-            A[fm, fm, ns, yr] <- A[fm, fm, ns, yr] + (1 - Pmoult)
-          }
-        }
+        for (ns in goodts) A[, , ns, yr] <- win_stm(ns, exp(S[yr]))
       }
     } else {
       A <- array(0, c(nlbin, nlbin, ntsteps))
-      for (ns in goodts) {
-        for (fm in 1:nlbin) {
-          mn_growth <- growthmat[ns, fm]
-          sd_growth <- exp(LsigGrow) * mn_growth
-          Pmoult    <- pm_fn(ns, fm)
-
-          probs <- rep(0, nlbin)
-          for (k in fm:(nlbin - 1)) {
-            probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
-              pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
-          }
-          probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
-          probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
-
-          A[fm:nlbin, fm, ns] <- Pmoult * probs_norm
-          A[fm, fm, ns] <- A[fm, fm, ns] + (1 - Pmoult)
-        }
-      }
+      for (ns in goodts) A[, , ns] <- win_stm(ns, 1)
     }
     A
   }
@@ -599,11 +669,13 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ##   stm(r*P) = r * stm(P) + (1 - r) * I
   ##
   ## so a suppressed step is an exact linear blend of the base STM and the
-  ## identity, applied at the chaining step below. That holds column-wise
+  ## identity, applied at the chaining step below. With max_moults > 1 the
+  ## blend is the DEFINITION of suppression rather than an identity: with
+  ## probability 1 - r the animal skips the window entirely. That holds column-wise
   ## for any P, including the n_pmoult1 hard-fixed columns. It costs no
   ## extra arrays and no extra memory, which is what makes a fine-timestep
   ## configuration (monthly, say) feasible.
-  stm <- make_stm(Pmoult_fn)
+  stm <- make_stm()
 
   ## --- Internal identification mixture (local function) -------------------
   ## Moment-matched forward recursion over K goodts opportunities. No
@@ -611,62 +683,57 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   ## are over plain-integer loop indices, never over a weight/probability
   ## value itself; division-by-zero is avoided with an additive eps instead
   ## of a guarded branch.
+  ##
+  ## Each opportunity adds j = 0..Kmax moults with probabilities q (from
+  ## moult_wts, then suppression: with prob 1 - r_i the window is skipped).
+  ## j moults add j * mu and j * var -- the increment is held at the
+  ## release-size value across moults, an approximation used ONLY here; the
+  ## STM chain itself grows each moult from the new length. With Kmax = 1
+  ## this is exactly the original two-branch recursion.
   ident_mixture_ll <- function(inc, fm, ns_seq, yr_seq, r_i) {
     K <- length(ns_seq)
     if (K == 0) return(0)   # plain-data branch: fine
 
-    p_k  <- rep(0, K)
-    mu_k <- rep(0, K)
-    vr_k <- rep(0, K)
+    M <- K * Kmax            # most moults possible over the liberty
+    eps <- 1e-10
+    W  <- rep(0, M + 1); W[1] <- 1
+    Mn <- rep(0, M + 1)
+    Vr <- rep(0, M + 1)
+
     for (k in 1:K) {
       ns_k <- ns_seq[k]
-      ## r_i is this animal's recovery factor, constant across its
-      ## timesteps (it is a function of total liberty), so it scales every
-      ## opportunity's moult probability identically -- matching what the
-      ## STM chain does.
-      p_k[k] <- r_i * Pmoult_fn(ns_k, fm)
+      q <- r_i * moult_wts(Pmoult_fn(ns_k, fm))
+      q[1] <- q[1] + (1 - r_i)
       mg <- growthmat[ns_k, fm]
       if (TemporalGrowth) mg <- mg * exp(S[yr_seq[k]])
-      mu_k[k] <- mg
-      vr_k[k] <- (exp(LsigGrow) * mg)^2
-    }
+      mu_k <- mg
+      vr_k <- (exp(LsigGrow) * mg)^2
 
-    eps <- 1e-10
-    W  <- rep(0, K + 1); W[1] <- 1
-    Mn <- rep(0, K + 1)
-    Vr <- rep(0, K + 1)
-
-    for (k in 1:K) {
-      newW  <- rep(0, K + 1)
-      newMn <- rep(0, K + 1)
-      newVr <- rep(0, K + 1)
-
-      for (mi in 1:(K + 1)) {
+      newW  <- rep(0, M + 1)
+      newMn <- rep(0, M + 1)
+      newVr <- rep(0, M + 1)
+      for (mi in 1:(M + 1)) {
         m <- mi - 1   # plain integer, safe to compare below
-
-        wA  <- W[mi] * (1 - p_k[k])
-        muA <- Mn[mi]
-        vrA <- Vr[mi]
-
-        if (m >= 1) {
-          wB  <- W[mi - 1] * p_k[k]
-          muB <- Mn[mi - 1] + mu_k[k]
-          vrB <- Vr[mi - 1] + vr_k[k]
-        } else {
-          wB <- 0; muB <- 0; vrB <- 0
+        wtot <- 0; s1 <- 0; s2 <- 0
+        for (j in 0:Kmax) {
+          if (m - j >= 0) {
+            wj  <- W[mi - j] * q[j + 1]
+            muj <- Mn[mi - j] + j * mu_k
+            vrj <- Vr[mi - j] + j * vr_k
+            wtot <- wtot + wj
+            s1   <- s1 + wj * muj
+            s2   <- s2 + wj * (vrj + muj^2)
+          }
         }
-
-        wtot <- wA + wB
         newW[mi]  <- wtot
-        newMn[mi] <- (wA * muA + wB * muB) / (wtot + eps)
-        ex2       <- (wA * (vrA + muA^2) + wB * (vrB + muB^2)) / (wtot + eps)
-        newVr[mi] <- ex2 - newMn[mi]^2
+        newMn[mi] <- s1 / (wtot + eps)
+        newVr[mi] <- s2 / (wtot + eps) - newMn[mi]^2
       }
       W <- newW; Mn <- newMn; Vr <- newVr
     }
 
     dens <- 0
-    for (mi in 1:(K + 1)) {
+    for (mi in 1:(M + 1)) {
       sd_tot <- sqrt(Vr[mi] + 2 * sigError^2)
       dens <- dens + W[mi] * dnorm(inc, Mn[mi], sd_tot)
     }
@@ -756,21 +823,7 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
       if (cnt > 1) lenout[cnt, ] <- lenout[cnt - 1, ]
       if (ts %in% goodts) {
         if (TemporalGrowth) {
-          avg_stm <- matrix(0, nlbin, nlbin)
-          for (fm in 1:nlbin) {
-            mn_growth <- growthmat[ts, fm]
-            sd_growth <- exp(LsigGrow) * mn_growth
-            Pmoult    <- Pmoult_fn(ts, fm)
-            probs <- rep(0, nlbin)
-            for (k in fm:(nlbin - 1)) {
-              probs[k] <- pnorm(lbinU[k], lbin[fm] + mn_growth, sd_growth) -
-                pnorm(lbinL[k], lbin[fm] + mn_growth, sd_growth)
-            }
-            probs[nlbin] <- 1 - pnorm(lbinL[nlbin], lbin[fm] + mn_growth, sd_growth)
-            probs_norm <- probs[fm:nlbin] / sum(probs[fm:nlbin])
-            avg_stm[fm:nlbin, fm] <- Pmoult * probs_norm
-            avg_stm[fm, fm] <- avg_stm[fm, fm] + (1 - Pmoult)
-          }
+          avg_stm <- win_stm(ts, 1)   # base growth, no year effect
           lenout[cnt, ] <- avg_stm %*% lenout[cnt, ]
         } else {
           tmpstm <- stm[, , ts]
@@ -921,6 +974,9 @@ growmodPar <- function(pin, Like = 1, TemporalGrowth = FALSE) {
   }
   REPORT(Pmoult_par)
   REPORT(moult_hurdle)
+  ## Pmoult_vec is the expected number of moults per window when
+  ## max_moults > 1 (a probability when max_moults = 1).
+  REPORT(max_moults)
   REPORT(NLL_data)
   REPORT(PenPmoult)
   REPORT(PenGrowthP3)

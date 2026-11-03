@@ -63,6 +63,20 @@ cannot produce is a mixture of non-moulters and full-increment moulters
 at the same size. That bimodality is what the comparison tests.
 Compare fits on the reported \code{NLL_data}, not the objective.
 
+\strong{Multiple moults per window (\code{datain$max_moults}).} With the
+default 1, \code{Pmoult} is a probability and a window holds at most one
+moult. With 2 or more, \code{Pmoult_par} describes the EXPECTED NUMBER
+of moults in the window, lambda, from 0 to \code{max_moults}, and the
+window STM mixes 0, 1, ..., \code{max_moults} moults, each later moult
+starting from the length the previous one reached. The intended set-up
+is one increment-per-moult curve for every window
+(\code{MakemapPar(Growth_shared = TRUE)}) with a separate lambda curve
+per window (\code{Pmoult_shared = FALSE}): small animals can moult twice
+in one window and large ones not at all, so seasonal differences sit in
+moult frequency rather than in the increment. Suppression, when on, is
+the probability of skipping a window entirely. \code{n_pmoult1} is not
+applied in this mode. \code{Pmoult_vec} then reports lambda.
+
 \strong{CHANGES FROM THE PREVIOUS VERSION}
 
 \strong{1. Minimum-moults-per-year floor (\code{datain$mpy}).} Some
